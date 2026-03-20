@@ -39,6 +39,7 @@ class ToolbarWindow: NSPanel {
         visualEffect.blendingMode = .behindWindow
         visualEffect.wantsLayer = true
         visualEffect.layer?.cornerRadius = 14
+        visualEffect.layer?.masksToBounds = true
 
         // Close button
         let closeButton = NSButton(frame: .zero)
