@@ -35,9 +35,9 @@ public enum StateFile {
         )
     }
 
-    public static func read(from path: URL) throws -> AppState {
+    public static func read(from path: URL) throws -> AppState? {
         guard FileManager.default.fileExists(atPath: path.path) else {
-            throw CocoaError(.fileNoSuchFile)
+            return nil
         }
         let data = try Data(contentsOf: path)
         return try JSONDecoder().decode(AppState.self, from: data)

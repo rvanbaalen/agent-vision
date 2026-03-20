@@ -28,7 +28,7 @@ final class StateTests: XCTestCase {
     func testWriteAndReadState() throws {
         let state = AppState(pid: 12345, area: CaptureArea(x: 10, y: 20, width: 300, height: 200))
         try StateFile.write(state, to: testFile, createDirectory: testDir)
-        let read = try StateFile.read(from: testFile)
+        let read = try XCTUnwrap(StateFile.read(from: testFile))
         XCTAssertEqual(read.pid, 12345)
         XCTAssertEqual(read.area?.width, 300)
     }
@@ -36,7 +36,7 @@ final class StateTests: XCTestCase {
     func testWriteStatePidOnly() throws {
         let state = AppState(pid: 99, area: nil)
         try StateFile.write(state, to: testFile, createDirectory: testDir)
-        let read = try StateFile.read(from: testFile)
+        let read = try XCTUnwrap(StateFile.read(from: testFile))
         XCTAssertEqual(read.pid, 99)
         XCTAssertNil(read.area)
     }
