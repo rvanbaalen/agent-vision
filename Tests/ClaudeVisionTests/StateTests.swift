@@ -41,8 +41,8 @@ final class StateTests: XCTestCase {
         XCTAssertNil(read.area)
     }
 
-    func testReadNonexistentReturnsNil() {
-        let result = try? StateFile.read(from: testFile)
+    func testReadNonexistentReturnsNil() throws {
+        let result = try StateFile.read(from: testFile)
         XCTAssertNil(result)
     }
 

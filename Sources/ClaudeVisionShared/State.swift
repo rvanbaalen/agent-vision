@@ -28,7 +28,7 @@ public enum StateFile {
     public static func write(_ state: AppState, to path: URL, createDirectory dir: URL) throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(state)
-        try data.write(to: path)
+        try data.write(to: path, options: .atomic)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0o600],
             ofItemAtPath: path.path
