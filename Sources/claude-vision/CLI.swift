@@ -25,8 +25,15 @@ struct Start: ParsableCommand {
         // Clean up stale state
         StateFile.delete(at: Config.stateFilePath)
 
-        // Find the app binary next to this CLI binary (resolve symlinks for PATH installs)
-        let cliURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        // Find the app binary next to this CLI binary
+        // Use _NSGetExecutablePath to get the real path regardless of how we were invoked
+        var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        var size = UInt32(MAXPATHLEN)
+        guard _NSGetExecutablePath(&pathBuffer, &size) == 0 else {
+            throw ValidationError("Cannot determine executable path.")
+        }
+        let cliPath = String(cString: pathBuffer)
+        let cliURL = URL(fileURLWithPath: cliPath).resolvingSymlinksInPath()
         let appURL = cliURL.deletingLastPathComponent().appendingPathComponent("claude-vision-app")
 
         guard FileManager.default.fileExists(atPath: appURL.path) else {
