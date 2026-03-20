@@ -102,9 +102,11 @@ Stops the GUI process and cleans up state.
 
 Uses `CGWindowListCreateImage` with:
 - `CGRect` matching the selected area coordinates
-- `CGWindowListOption.optionOnScreenBelowWindow` to capture everything on screen in the region
-- Excludes the border overlay window
+- `CGWindowListOption.optionOnScreenOnly` to capture everything visible in the region
+- The border overlay window uses `NSWindow.Level` and `sharingType = .none` so it is automatically excluded from screen captures
 - Saves as PNG to temp directory (or user-specified path)
+
+**Note:** `capture` requires the GUI to be running (live PID check). This ensures the border overlay is active and the state is current. A stale state file with no running GUI is treated as "not running."
 
 ## State Management
 
