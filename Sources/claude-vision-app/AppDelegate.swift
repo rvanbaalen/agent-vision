@@ -79,7 +79,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Show toolbar again
         toolbarWindow.showToolbar()
 
-        // TODO: Show border window (Task 7)
+        // Show border window
+        borderWindow?.orderOut(nil)
+        borderWindow = BorderWindow(area: area)
+        borderWindow?.makeKeyAndOrderFront(nil)
     }
 
     @objc func selectionWasCancelled() {
