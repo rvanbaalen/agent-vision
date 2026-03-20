@@ -5,16 +5,13 @@ A macOS utility that gives Claude Code eyes. Mark a region on your screen and Cl
 ## Install
 
 ```bash
-# Clone and build
 git clone <repo-url> && cd claude-vision
-swift build -c release
-
-# Add to PATH (choose one)
-ln -sf $(pwd)/.build/release/claude-vision ~/.local/bin/claude-vision
-ln -sf $(pwd)/.build/release/claude-vision-app ~/.local/bin/claude-vision-app
+./scripts/install.sh
 ```
 
-Requires macOS 13+ and Screen Recording permission (macOS will prompt on first capture).
+This builds a release, installs **Claude Vision.app** to `/Applications`, and symlinks the `claude-vision` CLI to `~/.local/bin`.
+
+You can then launch from Spotlight/Applications or use the CLI. Requires macOS 13+ and Screen Recording permission (macOS will prompt on first capture).
 
 ## Quick Start
 
