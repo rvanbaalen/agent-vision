@@ -25,8 +25,8 @@ struct Start: ParsableCommand {
         // Clean up stale state
         StateFile.delete(at: Config.stateFilePath)
 
-        // Find the app binary next to this CLI binary
-        let cliURL = URL(fileURLWithPath: CommandLine.arguments[0]).standardized
+        // Find the app binary next to this CLI binary (resolve symlinks for PATH installs)
+        let cliURL = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         let appURL = cliURL.deletingLastPathComponent().appendingPathComponent("claude-vision-app")
 
         guard FileManager.default.fileExists(atPath: appURL.path) else {
