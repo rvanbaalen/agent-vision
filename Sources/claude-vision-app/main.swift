@@ -2,5 +2,6 @@ import AppKit
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
-// AppDelegate will be added in Task 5
+let delegate = AppDelegate()
+app.delegate = delegate
 app.run()
