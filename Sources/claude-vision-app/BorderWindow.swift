@@ -3,7 +3,6 @@ import ClaudeVisionShared
 
 class BorderWindow: NSWindow {
     init(area: CaptureArea) {
-        // Convert from CGWindowList coordinates (top-left origin) to AppKit (bottom-left origin)
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let screenHeight = screen.frame.height
 
@@ -27,7 +26,7 @@ class BorderWindow: NSWindow {
         isOpaque = false
         backgroundColor = .clear
         ignoresMouseEvents = true
-        sharingType = .none  // Excluded from screen captures
+        sharingType = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let borderView = BorderView(

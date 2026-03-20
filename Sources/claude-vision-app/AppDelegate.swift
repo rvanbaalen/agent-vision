@@ -90,4 +90,5 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         selectionOverlay = nil
         toolbarWindow.showToolbar()
     }
+
 }
