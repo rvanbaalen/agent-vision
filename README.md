@@ -242,6 +242,8 @@ This works for both native macOS apps and web content in browsers. The accessibi
 
 **`--element` is focus-free.** When you use `--element`, Claude interacts via the Accessibility API — the system cursor doesn't move and the user's active window stays focused. The user can keep working while Claude clicks buttons and fills forms.
 
+**Re-scan after every action that changes the UI.** After any click, navigation, form submission, or keystroke that could change what's on screen, run `claude-vision elements` again before your next interaction. Element indices change when the UI updates — stale indices will click the wrong thing. The pattern is always: **scan → act → re-scan → act → re-scan → ...**
+
 **When to use `elements` vs manual coordinates:**
 - **Use `--element N`** for clicking buttons, links, form fields, menu items — anything interactive. Focus-free.
 - **Use `--at X,Y`** only as a fallback when the element isn't in the scan (rare — custom-drawn UIs, canvas elements). This DOES steal focus.
@@ -297,28 +299,41 @@ claude-vision capture
 # Read the resulting PNG to check your work
 ```
 
-### Workflow: Interactive UI Testing
+### Workflow: Interactive UI Navigation
 
-Use element discovery to target elements precisely — no coordinate guessing:
+Every interaction follows the **scan → act → re-scan** loop. Never reuse element indices from a previous scan after the UI has changed.
 
 ```bash
-# 1. Discover all interactive elements in the area
+# 1. Scan to see what's on screen
 claude-vision elements
-# Read the JSON — find the element you want by its role and label
-# e.g. { "index": 3, "role": "button", "label": "Submit", ... }
 
-# 2. Click it by index
+# 2. Act on an element
 claude-vision control click --element 3
 
-# 3. Wait for UI response
-sleep 1
+# 3. Wait for UI to update
+sleep 0.5
 
-# 4. Capture the result to verify
-claude-vision capture
-
-# 5. If you need to interact with the updated UI, scan again
+# 4. Re-scan — the UI changed, old indices are stale
 claude-vision elements
-# The element indices may have changed — always re-scan after UI changes
+# Now you see the NEW elements. Pick your next target from THIS scan.
+
+# 5. Act again
+claude-vision control click --element 1
+
+# 6. Re-scan again...
+claude-vision elements
+# Repeat for every interaction. Never skip the re-scan.
+```
+
+**Example: Navigating Finder folders**
+```bash
+claude-vision elements           # see files and folders
+claude-vision control click --element 5   # open "Documents" folder
+sleep 0.5
+claude-vision elements           # NOW see contents of Documents
+claude-vision control click --element 3   # open "Projects" subfolder
+sleep 0.5
+claude-vision elements           # see contents of Projects
 ```
 
 **Fallback: Manual coordinate targeting** (when element isn't in the scan):
