@@ -25,26 +25,36 @@ struct Start: ParsableCommand {
         // Clean up stale state
         StateFile.delete(at: Config.stateFilePath)
 
-        // Find the app binary next to this CLI binary
-        // Use _NSGetExecutablePath to get the real path regardless of how we were invoked
-        var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-        var size = UInt32(MAXPATHLEN)
-        guard _NSGetExecutablePath(&pathBuffer, &size) == 0 else {
-            throw ValidationError("Cannot determine executable path.")
-        }
-        let cliPath = String(cString: pathBuffer)
-        let cliURL = URL(fileURLWithPath: cliPath).resolvingSymlinksInPath()
-        let appURL = cliURL.deletingLastPathComponent().appendingPathComponent("claude-vision-app")
+        // Try to launch via .app bundle first (preserves macOS permissions)
+        // Fall back to direct binary launch for dev builds
+        let appBundlePath = "/Applications/Claude Vision.app"
+        if FileManager.default.fileExists(atPath: appBundlePath) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            process.arguments = ["-a", appBundlePath]
+            try process.run()
+            process.waitUntilExit()
+        } else {
+            // Dev fallback: find binary next to CLI
+            var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+            var size = UInt32(MAXPATHLEN)
+            guard _NSGetExecutablePath(&pathBuffer, &size) == 0 else {
+                throw ValidationError("Cannot determine executable path.")
+            }
+            let cliPath = String(cString: pathBuffer)
+            let cliURL = URL(fileURLWithPath: cliPath).resolvingSymlinksInPath()
+            let appURL = cliURL.deletingLastPathComponent().appendingPathComponent("claude-vision-app")
 
-        guard FileManager.default.fileExists(atPath: appURL.path) else {
-            throw ValidationError("Cannot find claude-vision-app at \(appURL.path). Build it first with 'swift build'.")
-        }
+            guard FileManager.default.fileExists(atPath: appURL.path) else {
+                throw ValidationError("Cannot find claude-vision-app at \(appURL.path). Install with './scripts/install.sh' or build with 'swift build'.")
+            }
 
-        let process = Process()
-        process.executableURL = appURL
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
+            let process = Process()
+            process.executableURL = appURL
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+        }
 
         print("Claude Vision started. Use the toolbar to select an area.")
     }
