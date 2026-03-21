@@ -195,6 +195,16 @@ Click "Select Area" on the toolbar again at any time. The new selection replaces
 
 > **You can use `claude-vision` to see what's on screen.** This is your visual feedback loop for UI work.
 
+### Ground Rules
+
+**When using Claude Vision, interact ONLY through the `claude-vision` CLI.** Do not use any other tools to manipulate the UI:
+
+- **Do NOT** use `open`, `osascript`, `xdg-open`, AppleScript, or any other command to open URLs, launch apps, or create new windows. Navigate within the selected window using clicks and keyboard input.
+- **Do NOT** use browser automation tools (Puppeteer, Playwright, Selenium). You have a real screen — use it.
+- **Do NOT** resize, move, or rearrange windows. Work within the selected area as-is.
+- **Stay inside the selected area.** All your interactions must happen within the capture area the user selected. If you need something outside it, ask the user to adjust.
+- **One window, one area.** The capture area targets a specific window. All navigation (clicking links, pressing back, switching tabs) happens through `claude-vision control` commands within that window.
+
 ### Setup: Start a Visual Feedback Session
 
 At the beginning of a UI task, ask the user to set up a capture area:
