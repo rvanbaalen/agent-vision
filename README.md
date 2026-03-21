@@ -62,6 +62,26 @@ $ claude-vision capture --output ./screenshot.png
 ./screenshot.png
 ```
 
+### `claude-vision calibrate [--output PATH]`
+
+Captures the selected area with four crosshair markers at known coordinates overlaid on the image. Use this at the start of a session so Claude can map visual positions to click coordinates accurately.
+
+```
+$ claude-vision calibrate
+/var/folders/.../claude-vision-calibrate-1234567890.png
+Crosshairs at: (200,150) (600,150) (200,450) (600,450)
+Use these reference points to estimate click coordinates for `claude-vision control click --at X,Y`
+```
+
+### `claude-vision preview --at X,Y [--output PATH]`
+
+Captures the selected area with a green crosshair drawn at the specified position — without actually clicking. Use this to verify click coordinates before executing a control command.
+
+```
+$ claude-vision preview --at 200,150
+/var/folders/.../claude-vision-preview-1234567890.png
+```
+
 ### `claude-vision stop`
 
 Stops the app and cleans up. Idempotent — safe to call even if not running.
@@ -71,14 +91,44 @@ $ claude-vision stop
 Claude Vision stopped.
 ```
 
-### `claude-vision control click --at X,Y`
+### `claude-vision elements [--annotated] [--output PATH]`
 
-Left-clicks at a position relative to the selected area's top-left corner (0,0).
+Discovers interactive elements in the selected area using the macOS Accessibility API and Vision OCR. Prints a JSON list of elements to stdout, each with an index, role, label, and exact coordinates. Use this instead of guessing coordinates from screenshots.
 
 ```
+$ claude-vision elements
+{
+  "area": { "x": 100, "y": 200, "width": 800, "height": 600 },
+  "elementCount": 5,
+  "elements": [
+    { "index": 1, "source": "accessibility", "role": "button", "label": "Submit", "center": { "x": 400, "y": 150 }, "bounds": { ... } },
+    { "index": 2, "source": "accessibility", "role": "textField", "label": "Email", "center": { "x": 400, "y": 100 }, "bounds": { ... } },
+    ...
+  ]
+}
+
+$ claude-vision elements --annotated
+# Same JSON output + saves annotated screenshot with numbered badges on each element
+# Screenshot path printed to stderr
+```
+
+The `--annotated` flag saves a screenshot with numbered badges overlaid on each element (blue for accessibility-sourced, orange for OCR-sourced). Useful when you need spatial context.
+
+### `claude-vision control click --at X,Y` or `--element N`
+
+Left-clicks at a position. Two targeting modes:
+
+```
+# By element index (preferred — exact coordinates from last scan)
+$ claude-vision control click --element 1
+Clicked at (400, 150)
+
+# By manual coordinates (fallback)
 $ claude-vision control click --at 150,300
 Clicked at (150, 300)
 ```
+
+`--element N` looks up element N from the last `elements` scan and clicks its center. This is the preferred approach — no coordinate guessing needed.
 
 ### `claude-vision control type --text TEXT`
 
@@ -159,6 +209,23 @@ claude-vision start
 claude-vision wait --timeout 120  # Wait up to 2 minutes for the user to select
 ```
 
+### Element Discovery: The Fast Way to Click
+
+After the area is selected, **use `elements` to discover clickable UI elements** instead of guessing coordinates from screenshots. This is faster and more reliable.
+
+```bash
+claude-vision elements
+# Read the JSON output — it lists every button, link, text field, etc. with exact coordinates
+# Pick the element you want by its label and index
+claude-vision control click --element 3
+```
+
+This works for both native macOS apps and web content in browsers. The accessibility API finds buttons, links, fields, checkboxes, etc. Vision OCR supplements with text that the accessibility tree misses.
+
+**When to use `elements` vs manual coordinates:**
+- **Use `elements`** for clicking buttons, links, form fields, menu items — anything interactive
+- **Use `--at X,Y`** only as a fallback when the element isn't in the scan (rare — custom-drawn UIs, canvas elements)
+
 ### Workflow: Visual Feedback Loop
 
 Use this pattern when working on UI changes:
@@ -212,44 +279,56 @@ claude-vision capture
 
 ### Workflow: Interactive UI Testing
 
-Use capture + control for a full interaction loop:
+Use element discovery to target elements precisely — no coordinate guessing:
 
 ```bash
-# 1. See the current state
-claude-vision capture
-# Read the screenshot to understand the UI layout
+# 1. Discover all interactive elements in the area
+claude-vision elements
+# Read the JSON — find the element you want by its role and label
+# e.g. { "index": 3, "role": "button", "label": "Submit", ... }
 
-# 2. Interact with an element (e.g., click a button at coordinates you identified)
-claude-vision control click --at 200,150
+# 2. Click it by index
+claude-vision control click --element 3
 
 # 3. Wait for UI response
 sleep 1
 
 # 4. Capture the result to verify
 claude-vision capture
-# Read the new screenshot to check what happened
+
+# 5. If you need to interact with the updated UI, scan again
+claude-vision elements
+# The element indices may have changed — always re-scan after UI changes
+```
+
+**Fallback: Manual coordinate targeting** (when element isn't in the scan):
+
+```bash
+# Preview — the green DOT must be on the target element
+claude-vision preview --at 400,150
+# Read the preview. If the dot is off, recalculate and preview again.
+
+# Only click once the dot is confirmed on target
+claude-vision control click --at 400,150
 ```
 
 ### Workflow: Filling a Form
 
 ```bash
-# Capture to see the form
-claude-vision capture
+# Discover form elements
+claude-vision elements
+# JSON shows: index 1 = textField "Name", index 2 = textField "Email", index 3 = button "Submit"
 
-# Click on the first input field
-claude-vision control click --at 200,100
-
-# Type into it
+# Click the name field and type
+claude-vision control click --element 1
 claude-vision control type --text "John Doe"
 
-# Tab to next field
-claude-vision control key --key tab
-
-# Type into next field
+# Click the email field and type
+claude-vision control click --element 2
 claude-vision control type --text "john@example.com"
 
-# Submit the form
-claude-vision control key --key enter
+# Click submit
+claude-vision control click --element 3
 
 # Capture to verify
 sleep 1
@@ -262,13 +341,19 @@ claude-vision capture
 # Capture current view
 claude-vision capture
 
-# If the content you need isn't visible, scroll down
+# Option 1: Scroll with delta
 claude-vision control scroll --delta 0,-300
+
+# Option 2: If a scrollbar is visible, drag its thumb directly
+# This is more precise — calculate the thumb position and drag it to where you need
+claude-vision control drag --from 780,200 --to 780,400
 
 # Capture again to see new content
 sleep 0.5
 claude-vision capture
 ```
+
+**Tip:** When you see a scrollbar with a visible thumb, dragging it is often more predictable than scroll deltas. Calculate the thumb's current position, then drag it to the position that corresponds to the content you want to see.
 
 ### Workflow: Mobile Simulator Swipe
 
@@ -286,13 +371,33 @@ claude-vision capture
 - All positions are relative to the **top-left corner** of the selected area
 - `(0, 0)` = top-left corner of the area
 - `(area_width-1, area_height-1)` = bottom-right corner
-- To find where to click, capture a screenshot first and identify element positions visually
 - **All actions are bounds-checked** — you cannot accidentally interact outside the selected area
+
+### Targeting Elements
+
+**Preferred: Use `elements` for exact targeting.** Run `claude-vision elements` to get a JSON list of every interactive element with its exact center coordinates. Pick the element by its role and label, then `click --element N`. No guessing, no previewing, no iteration.
+
+```bash
+claude-vision elements                    # scan
+claude-vision control click --element 5   # click — done
+```
+
+**Always re-scan after UI changes.** Element indices may change after clicks, navigation, or page loads. Run `elements` again before each interaction.
+
+**Fallback: Manual coordinates.** For elements not in the scan (custom-drawn UIs, canvas elements), use `--at X,Y`:
+1. The screenshot maps 1:1 to the area coordinate space — pixel position = click coordinate
+2. Use `claude-vision preview --at X,Y` to verify before clicking
+3. The green **dot** marks the click point (the label may be offset)
+4. Recalculate if the dot is off — don't nudge by small amounts
 
 ### Control Error Handling
 
 | Error | What to do |
 |-------|-----------|
+| `No element scan found` | Run `claude-vision elements` before using `--element` |
+| `Element N not found` | The index is out of range — re-run `elements` and check the valid range |
+| `Stale scan: capture area changed` | The area was reselected since the last scan — run `elements` again |
+| `Specify either --at or --element, not both` | Use one targeting mode, not both |
 | `coordinates are outside the selected area` | Check your X,Y values against the area dimensions |
 | `Accessibility permission required` | Ask user to enable Accessibility for Claude Vision in System Settings > Privacy & Security > Accessibility |
 | `action timed out` | The GUI may not be responding — ask user to check if Claude Vision is still running |
@@ -307,6 +412,20 @@ claude-vision capture
 - **Screenshots are just PNGs** — you can read them with the Read tool since Claude Code is multimodal
 - **Always describe what you see** — every time you analyze a screenshot, give the user a brief description of what's visible (layout, key elements, colors, state). This confirms you're looking at the right thing and builds shared understanding
 - **Acknowledge UI issues honestly** — when the user points out a specific visual problem, look for it in the screenshot and describe what you see. If you can identify the issue, confirm it by describing the specifics. If you can't visually identify what the user is describing, say so honestly rather than guessing — ask for clarification or a new screenshot if needed
+
+### Input and Focus Discipline
+
+**Never type or press keys without verifying focus first.** Sending keystrokes to the wrong element can cause unintended actions.
+
+Follow this sequence for text input:
+
+1. **Scan** with `claude-vision elements` to find the target field
+2. **Click** the field with `claude-vision control click --element N`
+3. **Capture** to confirm the field has focus (look for cursor/caret, focus ring)
+4. **Only then type** with `claude-vision control type --text "..."`
+5. **Capture again** to verify text was entered correctly
+
+If you cannot confirm focus visually, **do not type**. Click again or ask the user for help.
 
 ### Error Handling
 
@@ -341,8 +460,9 @@ sleep 3
 claude-vision capture --output /tmp/result.png
 # Read /tmp/result.png to check the changes
 
-# If something looks wrong, iterate
-# Make more changes, capture again, compare
+# If you need to interact (click a button, fill a form):
+claude-vision elements
+# Pick element by label → click --element N
 
 # When done
 claude-vision stop
@@ -353,7 +473,7 @@ claude-vision stop
 ```bash
 swift build          # Debug build
 swift build -c release  # Release build
-swift test           # Run tests (11 tests)
+swift test           # Run tests (22 tests)
 ```
 
 ### Project Structure
@@ -371,9 +491,13 @@ Sources/
 └── ClaudeVisionShared/      # Shared library
     ├── State.swift          # State file IPC (JSON)
     ├── Config.swift         # Paths and constants
-    ├── Capture.swift        # CGWindowListCreateImage wrapper
+    ├── Capture.swift        # CGWindowListCreateImage wrapper + annotated screenshots
     ├── Action.swift         # Action types + file I/O
-    └── KeyMapping.swift     # Key name → virtual key code
+    ├── KeyMapping.swift     # Key name → virtual key code
+    ├── Element.swift        # DiscoveredElement model + JSON coding
+    ├── ElementDiscovery.swift # Accessibility API element discovery
+    ├── TextDiscovery.swift  # Vision OCR text discovery
+    └── ElementStore.swift   # Element scan cache (elements.json)
 ```
 
 ## License
