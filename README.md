@@ -11,7 +11,7 @@ git clone <repo-url> && cd claude-vision
 
 This builds a release, installs **Claude Vision.app** to `/Applications`, and symlinks the `claude-vision` CLI to `~/.local/bin`.
 
-You can then launch from Spotlight/Applications or use the CLI. Requires macOS 13+ and Screen Recording permission (macOS will prompt on first capture).
+You can then launch from Spotlight/Applications or use the CLI. Requires macOS 13+, Screen Recording permission, and Accessibility permission (for input controls).
 
 ## Quick Start
 
@@ -19,7 +19,8 @@ You can then launch from Spotlight/Applications or use the CLI. Requires macOS 1
 claude-vision start          # Shows floating toolbar
 # Click "Select Area" on the toolbar, drag to select a screen region
 claude-vision wait           # Blocks until area is selected
-claude-vision capture        # Prints path to screenshot PNG
+claude-vision capture        # Screenshot the area
+claude-vision control click --at 100,50   # Click within the area
 claude-vision stop           # Quit
 ```
 
@@ -70,6 +71,54 @@ $ claude-vision stop
 Claude Vision stopped.
 ```
 
+### `claude-vision control click --at X,Y`
+
+Left-clicks at a position relative to the selected area's top-left corner (0,0).
+
+```
+$ claude-vision control click --at 150,300
+Clicked at (150, 300)
+```
+
+### `claude-vision control type --text TEXT`
+
+Types text at the current cursor position.
+
+```
+$ claude-vision control type --text "hello world"
+Typed "hello world"
+```
+
+### `claude-vision control key --key KEY`
+
+Presses a key or key combination. Supports: `enter`, `tab`, `escape`, `space`, `delete`, `backspace`, `up`, `down`, `left`, `right`, `home`, `end`. Modifiers: `cmd+`, `shift+`, `alt+`, `ctrl+`.
+
+```
+$ claude-vision control key --key enter
+Pressed enter
+
+$ claude-vision control key --key "cmd+a"
+Pressed cmd+a
+```
+
+### `claude-vision control scroll --delta DX,DY [--at X,Y]`
+
+Scrolls by pixel delta. Negative Y = scroll down, positive Y = scroll up. Position defaults to center of area.
+
+```
+$ claude-vision control scroll --delta 0,-100
+Scrolled by (0, -100) at (200, 300)
+```
+
+### `claude-vision control drag --from X,Y --to X,Y`
+
+Click-and-drag between two points. Useful for mobile simulator swipe gestures.
+
+```
+$ claude-vision control drag --from 150,400 --to 150,100
+Dragged from (150, 400) to (150, 100)
+```
+
 ## How It Works
 
 - **Toolbar**: A floating macOS panel (like the built-in screenshot toolbar) that stays above all windows
@@ -77,6 +126,7 @@ Claude Vision stopped.
 - **Border**: A dashed blue border with "Claude Vision" label marks the active capture area. It's click-through (doesn't interfere with your content) and invisible to screenshots
 - **State**: The app and CLI communicate via `~/.claude-vision/state.json` — the GUI writes the selected area coordinates, the CLI reads them to capture
 - **Capture**: Uses `CGWindowListCreateImage` to screenshot the exact region. The border overlay is excluded automatically
+- **Input Controls**: Actions (click, scroll, type, etc.) are sent via JSON files to the GUI, which executes them using the macOS CGEvent API. A visual ripple appears at each action point. All coordinates are bounds-checked to stay within the selected area
 
 ## Re-selecting an Area
 
@@ -160,6 +210,94 @@ claude-vision capture
 # Read the resulting PNG to check your work
 ```
 
+### Workflow: Interactive UI Testing
+
+Use capture + control for a full interaction loop:
+
+```bash
+# 1. See the current state
+claude-vision capture
+# Read the screenshot to understand the UI layout
+
+# 2. Interact with an element (e.g., click a button at coordinates you identified)
+claude-vision control click --at 200,150
+
+# 3. Wait for UI response
+sleep 1
+
+# 4. Capture the result to verify
+claude-vision capture
+# Read the new screenshot to check what happened
+```
+
+### Workflow: Filling a Form
+
+```bash
+# Capture to see the form
+claude-vision capture
+
+# Click on the first input field
+claude-vision control click --at 200,100
+
+# Type into it
+claude-vision control type --text "John Doe"
+
+# Tab to next field
+claude-vision control key --key tab
+
+# Type into next field
+claude-vision control type --text "john@example.com"
+
+# Submit the form
+claude-vision control key --key enter
+
+# Capture to verify
+sleep 1
+claude-vision capture
+```
+
+### Workflow: Scrolling to Find Content
+
+```bash
+# Capture current view
+claude-vision capture
+
+# If the content you need isn't visible, scroll down
+claude-vision control scroll --delta 0,-300
+
+# Capture again to see new content
+sleep 0.5
+claude-vision capture
+```
+
+### Workflow: Mobile Simulator Swipe
+
+```bash
+# Swipe up in a mobile simulator (drag from bottom to top)
+claude-vision control drag --from 200,500 --to 200,100
+
+# Wait and capture
+sleep 1
+claude-vision capture
+```
+
+### Control Coordinates
+
+- All positions are relative to the **top-left corner** of the selected area
+- `(0, 0)` = top-left corner of the area
+- `(area_width-1, area_height-1)` = bottom-right corner
+- To find where to click, capture a screenshot first and identify element positions visually
+- **All actions are bounds-checked** — you cannot accidentally interact outside the selected area
+
+### Control Error Handling
+
+| Error | What to do |
+|-------|-----------|
+| `coordinates are outside the selected area` | Check your X,Y values against the area dimensions |
+| `Accessibility permission required` | Ask user to enable Accessibility for Claude Vision in System Settings > Privacy & Security > Accessibility |
+| `action timed out` | The GUI may not be responding — ask user to check if Claude Vision is still running |
+| `unknown key` | Check supported key names in `claude-vision control key --help` |
+
 ### Key Behaviors
 
 - **Always capture before and after** when making visual changes — this lets you verify the change had the intended effect
@@ -167,6 +305,8 @@ claude-vision capture
 - **Don't assume the UI updated** — if you don't see your change in the screenshot, the page may not have refreshed yet. Wait and capture again
 - **The capture area stays fixed** — if the user scrolls or resizes the window, the capture area doesn't move with it. Ask the user to re-select if needed
 - **Screenshots are just PNGs** — you can read them with the Read tool since Claude Code is multimodal
+- **Always describe what you see** — every time you analyze a screenshot, give the user a brief description of what's visible (layout, key elements, colors, state). This confirms you're looking at the right thing and builds shared understanding
+- **Acknowledge UI issues honestly** — when the user points out a specific visual problem, look for it in the screenshot and describe what you see. If you can identify the issue, confirm it by describing the specifics. If you can't visually identify what the user is describing, say so honestly rather than guessing — ask for clarification or a new screenshot if needed
 
 ### Error Handling
 
@@ -225,11 +365,15 @@ Sources/
 │   ├── AppDelegate.swift    # App lifecycle, state management
 │   ├── ToolbarWindow.swift  # Floating toolbar panel
 │   ├── SelectionOverlay.swift # Drag-to-select overlay
-│   └── BorderWindow.swift   # Dashed border around area
+│   ├── BorderWindow.swift   # Dashed border around area
+│   ├── ActionWatcher.swift  # File watcher + CGEvent execution
+│   └── ActionFeedbackWindow.swift # Visual ripple overlay
 └── ClaudeVisionShared/      # Shared library
     ├── State.swift          # State file IPC (JSON)
     ├── Config.swift         # Paths and constants
-    └── Capture.swift        # CGWindowListCreateImage wrapper
+    ├── Capture.swift        # CGWindowListCreateImage wrapper
+    ├── Action.swift         # Action types + file I/O
+    └── KeyMapping.swift     # Key name → virtual key code
 ```
 
 ## License
