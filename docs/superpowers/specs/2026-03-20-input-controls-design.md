@@ -54,7 +54,7 @@ Click-and-drag from one point to another (for mobile simulator swipe gestures).
 
 All coordinate inputs are validated against the selected area dimensions before execution:
 
-- Coordinates must be within `(0, 0)` to `(area.width, area.height)`
+- Coordinates must satisfy `0 <= x < area.width` and `0 <= y < area.height`
 - If any coordinate is out of bounds, the action is rejected with a clear error and exit code 1
 - For drag: both `--from` and `--to` are validated
 - For scroll with `--at`: the position is validated
@@ -129,27 +129,27 @@ The CLI cannot execute CGEvents directly (it's a command-line tool, not the GUI 
 
 **Click:**
 ```json
-{ "action": "click", "at": { "x": 150, "y": 300 } }
+{ "action": "click", "at": { "x": 150, "y": 300 }, "timestamp": 1234567890 }
 ```
 
 **Type:**
 ```json
-{ "action": "type", "text": "hello world" }
+{ "action": "type", "text": "hello world", "timestamp": 1234567890 }
 ```
 
 **Key:**
 ```json
-{ "action": "key", "key": "cmd+a" }
+{ "action": "key", "key": "cmd+a", "timestamp": 1234567890 }
 ```
 
 **Scroll:**
 ```json
-{ "action": "scroll", "delta": { "dx": 0, "dy": -100 }, "at": { "x": 200, "y": 300 } }
+{ "action": "scroll", "delta": { "dx": 0, "dy": -100 }, "at": { "x": 200, "y": 300 }, "timestamp": 1234567890 }
 ```
 
 **Drag:**
 ```json
-{ "action": "drag", "from": { "x": 150, "y": 400 }, "to": { "x": 150, "y": 100 } }
+{ "action": "drag", "from": { "x": 150, "y": 400 }, "to": { "x": 150, "y": 100 }, "timestamp": 1234567890 }
 ```
 
 **Result:**
