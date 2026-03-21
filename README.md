@@ -119,25 +119,32 @@ The `--annotated` flag saves a screenshot with numbered badges overlaid on each 
 Left-clicks at a position. Two targeting modes:
 
 ```
-# By element index (preferred — exact coordinates from last scan)
+# By element index (preferred — focus-free, uses AX API directly)
 $ claude-vision control click --element 1
-Clicked at (400, 150)
+Clicked Submit (focus-free)
 
-# By manual coordinates (fallback)
+# By manual coordinates (fallback — uses CGEvent, steals focus)
 $ claude-vision control click --at 150,300
 Clicked at (150, 300)
 ```
 
-`--element N` looks up element N from the last `elements` scan and clicks its center. This is the preferred approach — no coordinate guessing needed.
+`--element N` uses the macOS Accessibility API to press the element directly — **it does not move the cursor or steal focus**. You can keep working while Claude interacts with the UI. `--at X,Y` falls back to CGEvent which does move the cursor.
 
-### `claude-vision control type --text TEXT`
+### `claude-vision control type --text TEXT [--element N]`
 
-Types text at the current cursor position.
+Types text. Two modes:
 
 ```
+# Focus-free: set text directly on a field by element index (replaces field value)
+$ claude-vision control type --text "hello world" --element 2
+Typed into Email (focus-free)
+
+# Legacy: type keystrokes at current cursor position (requires prior focus, steals focus)
 $ claude-vision control type --text "hello world"
 Typed "hello world"
 ```
+
+With `--element N`, the text is set directly via the Accessibility API — no cursor movement, no focus steal. Note: this **replaces** the field's entire value rather than appending.
 
 ### `claude-vision control key --key KEY`
 
@@ -211,20 +218,23 @@ claude-vision wait --timeout 120  # Wait up to 2 minutes for the user to select
 
 ### Element Discovery: The Fast Way to Click
 
-After the area is selected, **use `elements` to discover clickable UI elements** instead of guessing coordinates from screenshots. This is faster and more reliable.
+After the area is selected, **use `elements` to discover clickable UI elements** instead of guessing coordinates from screenshots. This is faster, more reliable, and **doesn't steal the user's focus**.
 
 ```bash
 claude-vision elements
 # Read the JSON output — it lists every button, link, text field, etc. with exact coordinates
 # Pick the element you want by its label and index
 claude-vision control click --element 3
+# Uses AX API directly — no cursor movement, user can keep working
 ```
 
 This works for both native macOS apps and web content in browsers. The accessibility API finds buttons, links, fields, checkboxes, etc. Vision OCR supplements with text that the accessibility tree misses.
 
+**`--element` is focus-free.** When you use `--element`, Claude interacts via the Accessibility API — the system cursor doesn't move and the user's active window stays focused. The user can keep working while Claude clicks buttons and fills forms.
+
 **When to use `elements` vs manual coordinates:**
-- **Use `elements`** for clicking buttons, links, form fields, menu items — anything interactive
-- **Use `--at X,Y`** only as a fallback when the element isn't in the scan (rare — custom-drawn UIs, canvas elements)
+- **Use `--element N`** for clicking buttons, links, form fields, menu items — anything interactive. Focus-free.
+- **Use `--at X,Y`** only as a fallback when the element isn't in the scan (rare — custom-drawn UIs, canvas elements). This DOES steal focus.
 
 ### Workflow: Visual Feedback Loop
 
@@ -319,13 +329,9 @@ claude-vision control click --at 400,150
 claude-vision elements
 # JSON shows: index 1 = textField "Name", index 2 = textField "Email", index 3 = button "Submit"
 
-# Click the name field and type
-claude-vision control click --element 1
-claude-vision control type --text "John Doe"
-
-# Click the email field and type
-claude-vision control click --element 2
-claude-vision control type --text "john@example.com"
+# Set field values directly (focus-free — doesn't steal cursor)
+claude-vision control type --text "John Doe" --element 1
+claude-vision control type --text "john@example.com" --element 2
 
 # Click submit
 claude-vision control click --element 3
@@ -334,6 +340,8 @@ claude-vision control click --element 3
 sleep 1
 claude-vision capture
 ```
+
+Note: `type --element` replaces the field's entire value. To append text to an existing value, use `type --text` without `--element` (requires prior focus via click).
 
 ### Workflow: Scrolling
 
