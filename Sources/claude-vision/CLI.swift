@@ -1,5 +1,6 @@
 @preconcurrency import Foundation
 import ArgumentParser
+import CoreGraphics
 import ClaudeVisionShared
 
 @main
@@ -7,7 +8,7 @@ struct ClaudeVision: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "claude-vision",
         abstract: "Screen region capture tool for Claude Code",
-        subcommands: [Start.self, Wait.self, Capture.self, Stop.self, Control.self]
+        subcommands: [Start.self, Wait.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self]
     )
 }
 
@@ -132,6 +133,66 @@ struct Capture: ParsableCommand {
             let path = try ScreenCapture.captureToTemp(area: area)
             print(path)
         }
+    }
+}
+
+struct Calibrate: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Capture with coordinate grid for calibration"
+    )
+
+    @Option(name: .long, help: "Output file path (default: temp file)")
+    var output: String?
+
+    func run() throws {
+        let area = try requireArea()
+        let outputPath: String
+        if let p = output {
+            outputPath = p
+        } else {
+            outputPath = FileManager.default.temporaryDirectory
+                .appendingPathComponent("claude-vision-calibrate-\(Int(Date().timeIntervalSince1970)).png").path
+        }
+
+        try ScreenCapture.captureWithCalibration(area: area, to: URL(fileURLWithPath: outputPath))
+
+        let w = Int(area.width)
+        let h = Int(area.height)
+        print(outputPath)
+        print("Crosshairs at: (\(w/4),\(h/4)) (\(w*3/4),\(h/4)) (\(w/4),\(h*3/4)) (\(w*3/4),\(h*3/4))")
+        print("Use these reference points to estimate click coordinates for `claude-vision control click --at X,Y`")
+    }
+}
+
+struct Preview: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Preview a click position — shows crosshair without clicking"
+    )
+
+    @Option(name: .long, help: "Position as X,Y relative to area top-left")
+    var at: String
+
+    @Option(name: .long, help: "Output file path (default: temp file)")
+    var output: String?
+
+    func run() throws {
+        let area = try requireArea()
+        let point = try parsePoint(at)
+
+        let outputPath: String
+        if let p = output {
+            outputPath = p
+        } else {
+            outputPath = FileManager.default.temporaryDirectory
+                .appendingPathComponent("claude-vision-preview-\(Int(Date().timeIntervalSince1970)).png").path
+        }
+
+        try ScreenCapture.captureWithPreview(
+            area: area,
+            at: (x: Int(point.x), y: Int(point.y)),
+            to: URL(fileURLWithPath: outputPath)
+        )
+        print(outputPath)
     }
 }
 
@@ -279,6 +340,68 @@ extension Control {
             let fromPt = try parsePoint(from)
             let toPt = try parsePoint(to)
             try sendAction(.drag(from: fromPt, to: toPt), area: area)
+        }
+    }
+}
+
+struct Elements: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Discover interactive elements in the selected area"
+    )
+
+    @Flag(name: .long, help: "Save annotated screenshot with numbered badges")
+    var annotated: Bool = false
+
+    @Option(name: .long, help: "Output file path for annotated screenshot")
+    var output: String?
+
+    func run() throws {
+        let area = try requireArea()
+
+        // Run accessibility discovery
+        let axElements = ElementDiscovery.discover(area: area)
+
+        // Capture image for OCR
+        let rect = CGRect(x: area.x, y: area.y, width: area.width, height: area.height)
+        var ocrElements: [DiscoveredElement] = []
+        if let image = CGWindowListCreateImage(rect, .optionOnScreenOnly, kCGNullWindowID, .bestResolution) {
+            ocrElements = TextDiscovery.discover(
+                image: image,
+                areaWidth: area.width,
+                areaHeight: area.height,
+                existingElements: axElements,
+                startIndex: axElements.count + 1
+            )
+        }
+
+        // Log warning if AX returned nothing
+        if axElements.isEmpty {
+            fputs("Warning: No elements found via Accessibility API. Check permissions or try a different area.\n", stderr)
+        }
+
+        let allElements = axElements + ocrElements
+        let result = ElementScanResult(area: area, elements: allElements)
+
+        // Write cache
+        try ElementStore.write(result, to: Config.elementsFilePath, createDirectory: Config.stateDirectory)
+
+        // Output JSON
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let json = try encoder.encode(result)
+        print(String(data: json, encoding: .utf8)!)
+
+        // Annotated screenshot if requested
+        if annotated {
+            let outputPath: String
+            if let p = output {
+                outputPath = p
+            } else {
+                outputPath = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("claude-vision-elements-\(Int(Date().timeIntervalSince1970)).png").path
+            }
+            try ScreenCapture.captureWithElements(area: area, elements: allElements, to: URL(fileURLWithPath: outputPath))
+            fputs("Annotated screenshot: \(outputPath)\n", stderr)
         }
     }
 }
