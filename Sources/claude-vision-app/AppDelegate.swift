@@ -13,6 +13,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var selectionOverlay: SelectionOverlay?  // Stub — replaced in Task 6
     var borderWindow: BorderWindow?          // Stub — replaced in Task 7
     var actionWatcher: ActionWatcher?
+    var feedbackWindow: ActionFeedbackWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Write PID to state file
@@ -66,7 +67,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func showActionFeedback(action: ActionRequest, area: CaptureArea) {
-        // Visual feedback will be added in Task 5
+        if feedbackWindow == nil {
+            feedbackWindow = ActionFeedbackWindow()
+        }
+
+        let screenPoint: CGPoint
+        switch action {
+        case .click(let pt):
+            screenPoint = CGPoint(x: area.x + pt.x, y: area.y + pt.y)
+        case .scroll(_, let pt):
+            screenPoint = CGPoint(x: area.x + pt.x, y: area.y + pt.y)
+        case .drag(let from, _):
+            screenPoint = CGPoint(x: area.x + from.x, y: area.y + from.y)
+        case .type, .key:
+            screenPoint = CGPoint(x: area.x + area.width / 2, y: area.y + area.height / 2)
+        }
+
+        feedbackWindow?.showRipple(at: screenPoint)
     }
 
     @objc func beginSelection() {
