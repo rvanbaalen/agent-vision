@@ -431,12 +431,12 @@ struct Elements: ParsableCommand {
             )
         }
 
-        // Log warning if AX returned nothing
-        if axElements.isEmpty {
-            fputs("Warning: No elements found via Accessibility API. Check permissions or try a different area.\n", stderr)
-        }
-
         let allElements = axElements + ocrElements
+
+        // Only warn if both sources found nothing
+        if allElements.isEmpty {
+            fputs("Warning: No elements found. Check Accessibility permissions or try a different area.\n", stderr)
+        }
         let result = ElementScanResult(area: area, elements: allElements)
 
         // Write cache
