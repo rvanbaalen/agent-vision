@@ -16,13 +16,15 @@ You can then launch from Spotlight/Applications or use the CLI. Requires macOS 1
 ## Quick Start
 
 ```bash
-claude-vision start          # Shows floating toolbar
+claude-vision start          # Prints session UUID, shows floating toolbar
 # Click "Select Window" to pick a window, or "Select Area" to drag-select a region
-claude-vision wait           # Blocks until area is selected
-claude-vision elements       # Discover clickable elements
-claude-vision control click --element 1   # Click an element (focus-free)
-claude-vision stop           # Quit
+claude-vision wait --session <uuid>           # Blocks until area is selected
+claude-vision elements --session <uuid>       # Discover clickable elements
+claude-vision control click --element 1 --session <uuid>   # Click (focus-free)
+claude-vision stop --session <uuid>           # End session
 ```
+
+Every command (except `start`) requires `--session <uuid>`. Multiple Claude instances can run separate sessions simultaneously without interfering.
 
 ## CLI Reference
 
@@ -222,19 +224,22 @@ Then I can take screenshots as I make changes to verify my work visually.
 Or start it yourself and ask the user to select:
 
 ```bash
-claude-vision start
-claude-vision wait --timeout 120  # Wait up to 2 minutes for the user to select
+# Start returns a session UUID — capture it and pass to all subsequent commands
+SESSION=$(claude-vision start)
+claude-vision wait --session $SESSION --timeout 120
 ```
+
+**Always pass `--session <uuid>` to every command after `start`.** The session UUID isolates your state from other Claude instances.
 
 ### Element Discovery: The Fast Way to Click
 
 After the area is selected, **use `elements` to discover clickable UI elements** instead of guessing coordinates from screenshots. This is faster, more reliable, and **doesn't steal the user's focus**.
 
 ```bash
-claude-vision elements
+claude-vision elements --session $SESSION
 # Read the JSON output — it lists every button, link, text field, etc. with exact coordinates
 # Pick the element you want by its label and index
-claude-vision control click --element 3
+claude-vision control click --element 3 --session $SESSION
 # Uses AX API directly — no cursor movement, user can keep working
 ```
 
@@ -487,15 +492,15 @@ If `capture` fails:
 ### Example: Full UI Development Session
 
 ```bash
-# Start Claude Vision
-claude-vision start
+# Start Claude Vision — capture the session UUID
+SESSION=$(claude-vision start)
 # Ask user to select the browser area showing the UI
 
 # Wait for selection
-claude-vision wait
+claude-vision wait --session $SESSION
 
 # Capture reference state
-claude-vision capture --output /tmp/reference.png
+claude-vision capture --session $SESSION --output /tmp/reference.png
 # Read /tmp/reference.png to understand current UI
 
 # Make code changes to the UI...
@@ -504,15 +509,15 @@ claude-vision capture --output /tmp/reference.png
 sleep 3
 
 # Verify changes
-claude-vision capture --output /tmp/result.png
+claude-vision capture --session $SESSION --output /tmp/result.png
 # Read /tmp/result.png to check the changes
 
 # If you need to interact (click a button, fill a form):
-claude-vision elements
+claude-vision elements --session $SESSION
 # Pick element by label → click --element N
 
 # When done
-claude-vision stop
+claude-vision stop --session $SESSION
 ```
 
 ## Development
@@ -520,7 +525,7 @@ claude-vision stop
 ```bash
 swift build          # Debug build
 swift build -c release  # Release build
-swift test           # Run tests (22 tests)
+swift test           # Run tests (24 tests)
 ```
 
 ### Project Structure
