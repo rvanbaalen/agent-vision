@@ -2,11 +2,13 @@ import AppKit
 import ClaudeVisionShared
 
 /// Controller that manages window selection across all screens.
-/// Uses a global event monitor so mouse tracking works on every monitor.
+/// Polls NSEvent.mouseLocation via timer so tracking works on every monitor.
 @MainActor
 class WindowSelectionController {
     private var overlays: [WindowSelectionOverlay] = []
-    private var localMonitor: Any?
+    private var pollTimer: Timer?
+    private var clickMonitor: Any?
+    private var keyMonitor: Any?
     private var windowRects: [(pid: pid_t, name: String?, frame: CGRect)] = []
     private var highlightedRect: CGRect?
     private var highlightedName: String?
@@ -18,51 +20,44 @@ class WindowSelectionController {
             overlays.append(overlay)
             overlay.orderFrontRegardless()
         }
+        // Make the first overlay key so it can receive keyboard events
+        overlays.first?.makeKeyAndOrderFront(nil)
 
         NSCursor.crosshair.push()
         refreshWindowList()
 
-        // Global event monitor catches mouse events on ALL screens.
-        // The closure runs on the main thread but Swift 6 doesn't know that.
-        let controller = self
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .keyDown]) { event in
-            let type = event.type
-            let keyCode = event.keyCode
-            let shouldConsume = MainActor.assumeIsolated {
-                controller.handleEvent(type: type, keyCode: keyCode)
+        // Poll mouse position — works across all monitors regardless of key window
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.handleMouseMoved()
             }
-            return shouldConsume ? nil : event
+        }
+
+        // Monitor clicks and keyboard across the app
+        let controller = self
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            MainActor.assumeIsolated { controller.handleClick() }
+            return nil // consume
+        }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 { // Escape
+                MainActor.assumeIsolated {
+                    controller.end()
+                    NotificationCenter.default.post(name: .selectionCancelled, object: nil)
+                }
+            }
+            return nil // consume
         }
     }
 
     func end() {
-        if let monitor = localMonitor {
-            NSEvent.removeMonitor(monitor)
-            localMonitor = nil
-        }
+        pollTimer?.invalidate()
+        pollTimer = nil
+        if let m = clickMonitor { NSEvent.removeMonitor(m); clickMonitor = nil }
+        if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
         NSCursor.pop()
         for overlay in overlays { overlay.orderOut(nil) }
         overlays.removeAll()
-    }
-
-    /// Returns true if the event should be consumed (not passed through).
-    private func handleEvent(type: NSEvent.EventType, keyCode: UInt16) -> Bool {
-        switch type {
-        case .mouseMoved:
-            handleMouseMoved()
-            return false // pass through
-        case .leftMouseDown:
-            handleClick()
-            return true // consume
-        case .keyDown:
-            if keyCode == 53 { // Escape
-                end()
-                NotificationCenter.default.post(name: .selectionCancelled, object: nil)
-            }
-            return true // consume all keys during selection
-        default:
-            return false
-        }
     }
 
     private func handleMouseMoved() {
