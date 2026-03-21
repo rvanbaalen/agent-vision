@@ -244,6 +244,23 @@ func sendAction(_ action: ActionRequest, area: CaptureArea) throws {
     throw ExitCode.failure
 }
 
+/// Resolve an element index from the cached scan, with stale/bounds checks.
+func resolveElement(index: Int, area: CaptureArea) throws -> DiscoveredElement {
+    guard let scanResult = try ElementStore.read(from: Config.elementsFilePath) else {
+        fputs("No element scan found. Run 'claude-vision elements' first.\n", stderr)
+        throw ExitCode.failure
+    }
+    if ElementStore.isStale(scanResult, currentArea: area) {
+        fputs("Stale scan: capture area changed since last scan. Run 'claude-vision elements' again.\n", stderr)
+        throw ExitCode.failure
+    }
+    guard let el = ElementStore.lookup(index: index, in: scanResult) else {
+        fputs("Element \(index) not found. Last scan found \(scanResult.elementCount) elements (1-\(scanResult.elementCount)).\n", stderr)
+        throw ExitCode.failure
+    }
+    return el
+}
+
 func parsePoint(_ str: String) throws -> Point {
     let parts = str.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
     guard parts.count == 2 else {
@@ -276,39 +293,32 @@ extension Control {
         @Option(name: .long, help: "Position as X,Y relative to area top-left")
         var at: String?
 
-        @Option(name: .long, help: "Element index from last 'elements' scan")
+        @Option(name: .long, help: "Element index from last 'elements' scan (focus-free)")
         var element: Int?
 
         func run() throws {
             let area = try requireArea()
 
-            let point: Point
             if let elementIndex = element {
                 guard at == nil else {
                     fputs("Specify either --at or --element, not both.\n", stderr)
                     throw ExitCode.failure
                 }
-                guard let scanResult = try ElementStore.read(from: Config.elementsFilePath) else {
-                    fputs("No element scan found. Run 'claude-vision elements' first.\n", stderr)
+                let el = try resolveElement(index: elementIndex, area: area)
+                do {
+                    try ElementAction.press(element: el, area: area)
+                    print("Clicked \(el.displayLabel) (focus-free)")
+                } catch {
+                    fputs("\(error)\n", stderr)
                     throw ExitCode.failure
                 }
-                if ElementStore.isStale(scanResult, currentArea: area) {
-                    fputs("Stale scan: capture area changed since last scan. Run 'claude-vision elements' again.\n", stderr)
-                    throw ExitCode.failure
-                }
-                guard let el = ElementStore.lookup(index: elementIndex, in: scanResult) else {
-                    fputs("Element \(elementIndex) not found. Last scan found \(scanResult.elementCount) elements (1-\(scanResult.elementCount)).\n", stderr)
-                    throw ExitCode.failure
-                }
-                point = el.center
             } else if let atStr = at {
-                point = try parsePoint(atStr)
+                let point = try parsePoint(atStr)
+                try sendAction(.click(at: point), area: area)
             } else {
                 fputs("Specify --at X,Y or --element N.\n", stderr)
                 throw ExitCode.failure
             }
-
-            try sendAction(.click(at: point), area: area)
         }
     }
 
@@ -319,9 +329,25 @@ extension Control {
         )
         @Option(name: .long, help: "Text to type")
         var text: String
+
+        @Option(name: .long, help: "Element index from last 'elements' scan (focus-free, replaces field value)")
+        var element: Int?
+
         func run() throws {
             let area = try requireArea()
-            try sendAction(.type(text: text), area: area)
+
+            if let elementIndex = element {
+                let el = try resolveElement(index: elementIndex, area: area)
+                do {
+                    try ElementAction.setText(text, element: el, area: area)
+                    print("Typed into \(el.displayLabel) (focus-free)")
+                } catch {
+                    fputs("\(error)\n", stderr)
+                    throw ExitCode.failure
+                }
+            } else {
+                try sendAction(.type(text: text), area: area)
+            }
         }
     }
 

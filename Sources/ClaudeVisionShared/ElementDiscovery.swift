@@ -53,7 +53,7 @@ public enum ElementDiscovery {
 
     // MARK: - Window PID Lookup
 
-    private static func findWindowOwnerPID(area: CaptureArea) -> pid_t? {
+    public static func findWindowOwnerPID(area: CaptureArea) -> pid_t? {
         let areaCenter = CGPoint(x: area.x + area.width / 2, y: area.y + area.height / 2)
         guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return nil
