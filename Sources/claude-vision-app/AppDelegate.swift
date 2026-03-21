@@ -1,26 +1,35 @@
 import AppKit
 import ClaudeVisionShared
 
+// Global session ID — set from main.swift, read by signal handler
+nonisolated(unsafe) var globalSessionID: String = ""
+
 // Signal handler for SIGTERM — must be a C function (no captures)
 private func handleSIGTERM(_: Int32) {
-    StateFile.delete(at: Config.stateFilePath)
+    if !globalSessionID.isEmpty {
+        try? FileManager.default.removeItem(at: Config.sessionDirectory(for: globalSessionID))
+    }
     DispatchQueue.main.async { NSApp.terminate(nil) }
 }
 
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
+    var sessionID: String = ""
     var toolbarWindow: ToolbarWindow!
     var selectionOverlay: SelectionOverlay?
     var windowSelectionController: WindowSelectionController?
-    var borderWindow: BorderWindow?          // Stub — replaced in Task 7
+    var borderWindow: BorderWindow?
     var actionWatcher: ActionWatcher?
     var feedbackWindow: ActionFeedbackWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Write PID to state file
+        globalSessionID = sessionID
+
+        // Write PID to state file for this session
         let state = AppState(pid: ProcessInfo.processInfo.processIdentifier, area: nil)
+        let sessionDir = Config.sessionDirectory(for: sessionID)
         do {
-            try StateFile.write(state, to: Config.stateFilePath, createDirectory: Config.stateDirectory)
+            try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: sessionDir)
         } catch {
             NSLog("Failed to write state file: \(error)")
             NSApp.terminate(nil)
@@ -60,7 +69,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
-        actionWatcher = ActionWatcher()
+        actionWatcher = ActionWatcher(sessionID: sessionID)
         actionWatcher?.start { [weak self] action, area in
             self?.showActionFeedback(action: action, area: area)
         }
@@ -68,9 +77,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         actionWatcher?.stop()
-        ActionFile.delete(at: Config.actionFilePath)
-        ActionFile.delete(at: Config.actionResultFilePath)
-        StateFile.delete(at: Config.stateFilePath)
+        // Clean up entire session directory
+        try? FileManager.default.removeItem(at: Config.sessionDirectory(for: sessionID))
     }
 
     func showActionFeedback(action: ActionRequest, area: CaptureArea) {
@@ -112,10 +120,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowSelectionController?.end()
         windowSelectionController = nil
 
-        // Update state file with area
+        // Update state file with area for this session
         let state = AppState(pid: ProcessInfo.processInfo.processIdentifier, area: area)
         do {
-            try StateFile.write(state, to: Config.stateFilePath, createDirectory: Config.stateDirectory)
+            try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: Config.sessionDirectory(for: sessionID))
         } catch {
             NSLog("Failed to write area to state: \(error)")
         }

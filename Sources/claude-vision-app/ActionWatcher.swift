@@ -6,6 +6,11 @@ import CoreGraphics
 class ActionWatcher {
     private var timer: Timer?
     private var onFeedback: ((ActionRequest, CaptureArea) -> Void)?
+    private let sessionID: String
+
+    init(sessionID: String) {
+        self.sessionID = sessionID
+    }
 
     func start(onFeedback: @escaping (ActionRequest, CaptureArea) -> Void) {
         self.onFeedback = onFeedback
@@ -22,23 +27,25 @@ class ActionWatcher {
     }
 
     private func checkForAction() {
-        let actionPath = Config.actionFilePath
+        let actionPath = Config.actionFilePath(for: sessionID)
+        let resultPath = Config.actionResultFilePath(for: sessionID)
+        let sessionDir = Config.sessionDirectory(for: sessionID)
         guard FileManager.default.fileExists(atPath: actionPath.path) else { return }
 
         do {
             let action = try ActionFile.readAction(from: actionPath)
 
-            guard let state = try StateFile.read(from: Config.stateFilePath),
+            guard let state = try StateFile.read(from: Config.stateFilePath(for: sessionID)),
                   let area = state.area else {
                 let result = ActionResult(success: false, message: "No area selected")
-                try? ActionFile.writeResult(result, to: Config.actionResultFilePath, createDirectory: Config.stateDirectory)
+                try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
                 ActionFile.delete(at: actionPath)
                 return
             }
 
             guard AXIsProcessTrusted() else {
                 let result = ActionResult(success: false, message: "Error: Accessibility permission required. Enable it in System Settings > Privacy & Security > Accessibility.")
-                try? ActionFile.writeResult(result, to: Config.actionResultFilePath, createDirectory: Config.stateDirectory)
+                try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
                 ActionFile.delete(at: actionPath)
                 return
             }
@@ -49,10 +56,10 @@ class ActionWatcher {
             onFeedback?(action, area)
 
             let result = ActionResult(success: true, message: message)
-            try ActionFile.writeResult(result, to: Config.actionResultFilePath, createDirectory: Config.stateDirectory)
+            try ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
         } catch {
             let result = ActionResult(success: false, message: "Error: \(error)")
-            try? ActionFile.writeResult(result, to: Config.actionResultFilePath, createDirectory: Config.stateDirectory)
+            try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
         }
 
         ActionFile.delete(at: actionPath)

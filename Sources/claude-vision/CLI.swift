@@ -13,26 +13,26 @@ struct ClaudeVision: ParsableCommand {
 }
 
 struct Start: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Launch the toolbar GUI")
+    static let configuration = CommandConfiguration(abstract: "Launch the toolbar GUI and create a new session")
 
     func run() throws {
-        // Check if already running
-        if let state = try StateFile.read(from: Config.stateFilePath),
-           StateFile.isProcessRunning(pid: state.pid) {
-            print("Claude Vision is already running (PID \(state.pid))")
-            return
-        }
+        // Clean up stale sessions
+        Config.cleanStaleSessions()
 
-        // Clean up stale state
-        StateFile.delete(at: Config.stateFilePath)
+        // Generate session UUID
+        let sessionID = UUID().uuidString.lowercased()
+        let sessionDir = Config.sessionDirectory(for: sessionID)
 
-        // Try to launch via .app bundle first (preserves macOS permissions)
-        // Fall back to direct binary launch for dev builds
+        // Write initial state
+        let state = AppState(pid: ProcessInfo.processInfo.processIdentifier, area: nil)
+        try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: sessionDir)
+
+        // Launch GUI with session ID
         let appBundlePath = "/Applications/Claude Vision.app"
         if FileManager.default.fileExists(atPath: appBundlePath) {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            process.arguments = ["-a", appBundlePath]
+            process.arguments = ["-n", "-a", appBundlePath, "--args", "--session", sessionID]
             try process.run()
             process.waitUntilExit()
         } else {
@@ -52,46 +52,56 @@ struct Start: ParsableCommand {
 
             let process = Process()
             process.executableURL = appURL
+            process.arguments = ["--session", sessionID]
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             try process.run()
         }
 
-        print("Claude Vision started. Use the toolbar to select an area.")
+        // Print session ID to stdout — Claude captures this
+        print(sessionID)
     }
 }
 
 struct Stop: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Stop the GUI")
+    static let configuration = CommandConfiguration(abstract: "Stop a session")
+
+    @Option(name: .long, help: "Session ID")
+    var session: String
 
     func run() throws {
-        guard let state = try StateFile.read(from: Config.stateFilePath) else {
-            print("Claude Vision is not running.")
-            return
-        }
+        try validateSession(session)
 
-        if StateFile.isProcessRunning(pid: state.pid) {
+        let statePath = Config.stateFilePath(for: session)
+        if let state = try StateFile.read(from: statePath),
+           StateFile.isProcessRunning(pid: state.pid) {
             kill(state.pid, SIGTERM)
         }
 
-        StateFile.delete(at: Config.stateFilePath)
-        print("Claude Vision stopped.")
+        // Remove entire session directory
+        try? FileManager.default.removeItem(at: Config.sessionDirectory(for: session))
+        print("Session stopped.")
     }
 }
 
 struct Wait: ParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Wait for area selection")
 
+    @Option(name: .long, help: "Session ID")
+    var session: String
+
     @Option(name: .long, help: "Timeout in seconds (default: 60)")
     var timeout: Int = 60
 
     func run() throws {
+        try validateSession(session)
+        let statePath = Config.stateFilePath(for: session)
         let deadline = Date().addingTimeInterval(TimeInterval(timeout))
 
         while Date() < deadline {
-            guard let state = try StateFile.read(from: Config.stateFilePath),
+            guard let state = try StateFile.read(from: statePath),
                   StateFile.isProcessRunning(pid: state.pid) else {
-                fputs("Claude Vision is not running. Use 'claude-vision start' first.\n", stderr)
+                fputs("Session is not running. Use 'claude-vision start' first.\n", stderr)
                 throw ExitCode.failure
             }
 
@@ -111,20 +121,14 @@ struct Wait: ParsableCommand {
 struct Capture: ParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Capture the selected area")
 
+    @Option(name: .long, help: "Session ID")
+    var session: String
+
     @Option(name: .long, help: "Output file path (default: temp file)")
     var output: String?
 
     func run() throws {
-        guard let state = try StateFile.read(from: Config.stateFilePath),
-              StateFile.isProcessRunning(pid: state.pid) else {
-            fputs("Claude Vision is not running. Use 'claude-vision start' first.\n", stderr)
-            throw ExitCode.failure
-        }
-
-        guard let area = state.area else {
-            fputs("No area selected. Use 'claude-vision start' to launch and select an area.\n", stderr)
-            throw ExitCode.failure
-        }
+        let area = try requireArea(session: session)
 
         if let outputPath = output {
             try ScreenCapture.capture(area: area, to: URL(fileURLWithPath: outputPath))
@@ -141,11 +145,14 @@ struct Calibrate: ParsableCommand {
         abstract: "Capture with coordinate grid for calibration"
     )
 
+    @Option(name: .long, help: "Session ID")
+    var session: String
+
     @Option(name: .long, help: "Output file path (default: temp file)")
     var output: String?
 
     func run() throws {
-        let area = try requireArea()
+        let area = try requireArea(session: session)
         let outputPath: String
         if let p = output {
             outputPath = p
@@ -169,6 +176,9 @@ struct Preview: ParsableCommand {
         abstract: "Preview a click position — shows crosshair without clicking"
     )
 
+    @Option(name: .long, help: "Session ID")
+    var session: String
+
     @Option(name: .long, help: "Position as X,Y relative to area top-left")
     var at: String
 
@@ -176,7 +186,7 @@ struct Preview: ParsableCommand {
     var output: String?
 
     func run() throws {
-        let area = try requireArea()
+        let area = try requireArea(session: session)
         let point = try parsePoint(at)
 
         let outputPath: String
@@ -196,39 +206,57 @@ struct Preview: ParsableCommand {
     }
 }
 
-// MARK: - Control helpers
+// MARK: - Session helpers
 
-/// Shared logic: read state, validate app running + area selected, return area.
-func requireArea() throws -> CaptureArea {
-    guard let state = try StateFile.read(from: Config.stateFilePath),
+/// Validate session ID format and existence.
+func validateSession(_ sessionID: String) throws {
+    guard Config.isValidSessionID(sessionID) else {
+        fputs("Invalid session ID.\n", stderr)
+        throw ExitCode.failure
+    }
+    guard FileManager.default.fileExists(atPath: Config.sessionDirectory(for: sessionID).path) else {
+        fputs("Session not found. Run 'claude-vision start' first.\n", stderr)
+        throw ExitCode.failure
+    }
+}
+
+/// Validate session, read state, check running + area selected, return area.
+func requireArea(session sessionID: String) throws -> CaptureArea {
+    try validateSession(sessionID)
+    let statePath = Config.stateFilePath(for: sessionID)
+    guard let state = try StateFile.read(from: statePath),
           StateFile.isProcessRunning(pid: state.pid) else {
-        fputs("Claude Vision is not running. Use 'claude-vision start' first.\n", stderr)
+        fputs("Session is not running. Use 'claude-vision start' first.\n", stderr)
         throw ExitCode.failure
     }
     guard let area = state.area else {
-        fputs("No area selected. Use 'claude-vision start' to launch and select an area.\n", stderr)
+        fputs("No area selected. Select an area using the toolbar.\n", stderr)
         throw ExitCode.failure
     }
     return area
 }
 
 /// Send an action to the GUI and wait for the result.
-func sendAction(_ action: ActionRequest, area: CaptureArea) throws {
+func sendAction(_ action: ActionRequest, area: CaptureArea, session sessionID: String) throws {
     if let error = action.boundsError(for: area) {
         fputs("\(error)\n", stderr)
         throw ExitCode.failure
     }
 
-    ActionFile.delete(at: Config.actionFilePath)
-    ActionFile.delete(at: Config.actionResultFilePath)
+    let actionPath = Config.actionFilePath(for: sessionID)
+    let resultPath = Config.actionResultFilePath(for: sessionID)
+    let sessionDir = Config.sessionDirectory(for: sessionID)
 
-    try ActionFile.write(action, to: Config.actionFilePath, createDirectory: Config.stateDirectory)
+    ActionFile.delete(at: actionPath)
+    ActionFile.delete(at: resultPath)
+
+    try ActionFile.write(action, to: actionPath, createDirectory: sessionDir)
 
     let deadline = Date().addingTimeInterval(5)
     while Date() < deadline {
-        if FileManager.default.fileExists(atPath: Config.actionResultFilePath.path) {
-            let result = try ActionFile.readResult(from: Config.actionResultFilePath)
-            ActionFile.delete(at: Config.actionResultFilePath)
+        if FileManager.default.fileExists(atPath: resultPath.path) {
+            let result = try ActionFile.readResult(from: resultPath)
+            ActionFile.delete(at: resultPath)
             if result.success {
                 print(result.message)
             } else {
@@ -244,9 +272,10 @@ func sendAction(_ action: ActionRequest, area: CaptureArea) throws {
     throw ExitCode.failure
 }
 
-/// Resolve an element index from the cached scan, with stale/bounds checks.
-func resolveElement(index: Int, area: CaptureArea) throws -> DiscoveredElement {
-    guard let scanResult = try ElementStore.read(from: Config.elementsFilePath) else {
+/// Resolve an element index from the cached scan.
+func resolveElement(index: Int, area: CaptureArea, session sessionID: String) throws -> DiscoveredElement {
+    let elementsPath = Config.elementsFilePath(for: sessionID)
+    guard let scanResult = try ElementStore.read(from: elementsPath) else {
         fputs("No element scan found. Run 'claude-vision elements' first.\n", stderr)
         throw ExitCode.failure
     }
@@ -290,6 +319,9 @@ extension Control {
     struct Click: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Left-click at a position")
 
+        @Option(name: .long, help: "Session ID")
+        var session: String
+
         @Option(name: .long, help: "Position as X,Y relative to area top-left")
         var at: String?
 
@@ -297,14 +329,14 @@ extension Control {
         var element: Int?
 
         func run() throws {
-            let area = try requireArea()
+            let area = try requireArea(session: session)
 
             if let elementIndex = element {
                 guard at == nil else {
                     fputs("Specify either --at or --element, not both.\n", stderr)
                     throw ExitCode.failure
                 }
-                let el = try resolveElement(index: elementIndex, area: area)
+                let el = try resolveElement(index: elementIndex, area: area, session: session)
                 do {
                     try ElementAction.press(element: el, area: area)
                     print("Clicked \(el.displayLabel) (focus-free)")
@@ -314,7 +346,7 @@ extension Control {
                 }
             } else if let atStr = at {
                 let point = try parsePoint(atStr)
-                try sendAction(.click(at: point), area: area)
+                try sendAction(.click(at: point), area: area, session: session)
             } else {
                 fputs("Specify --at X,Y or --element N.\n", stderr)
                 throw ExitCode.failure
@@ -327,6 +359,10 @@ extension Control {
             commandName: "type",
             abstract: "Type text at current cursor position"
         )
+
+        @Option(name: .long, help: "Session ID")
+        var session: String
+
         @Option(name: .long, help: "Text to type")
         var text: String
 
@@ -334,10 +370,10 @@ extension Control {
         var element: Int?
 
         func run() throws {
-            let area = try requireArea()
+            let area = try requireArea(session: session)
 
             if let elementIndex = element {
-                let el = try resolveElement(index: elementIndex, area: area)
+                let el = try resolveElement(index: elementIndex, area: area, session: session)
                 do {
                     try ElementAction.setText(text, element: el, area: area)
                     print("Typed into \(el.displayLabel) (focus-free)")
@@ -346,15 +382,20 @@ extension Control {
                     throw ExitCode.failure
                 }
             } else {
-                try sendAction(.type(text: text), area: area)
+                try sendAction(.type(text: text), area: area, session: session)
             }
         }
     }
 
     struct Key: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Press a key or key combination")
+
+        @Option(name: .long, help: "Session ID")
+        var session: String
+
         @Option(name: .long, help: "Key to press (e.g. enter, tab, cmd+a, shift+tab)")
         var key: String
+
         func run() throws {
             do {
                 _ = try KeyMapping.parse(key)
@@ -362,19 +403,25 @@ extension Control {
                 fputs("\(error)\n", stderr)
                 throw ExitCode.failure
             }
-            let area = try requireArea()
-            try sendAction(.key(key: key), area: area)
+            let area = try requireArea(session: session)
+            try sendAction(.key(key: key), area: area, session: session)
         }
     }
 
     struct Scroll: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Scroll by pixel delta")
+
+        @Option(name: .long, help: "Session ID")
+        var session: String
+
         @Option(name: .long, help: "Scroll delta as DX,DY (negative Y = scroll down)")
         var delta: String
+
         @Option(name: .long, help: "Position as X,Y (default: center of area)")
         var at: String?
+
         func run() throws {
-            let area = try requireArea()
+            let area = try requireArea(session: session)
             let d = try parseDelta(delta)
             let point: Point
             if let atStr = at {
@@ -382,21 +429,27 @@ extension Control {
             } else {
                 point = Point(x: area.width / 2, y: area.height / 2)
             }
-            try sendAction(.scroll(delta: d, at: point), area: area)
+            try sendAction(.scroll(delta: d, at: point), area: area, session: session)
         }
     }
 
     struct Drag: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Click and drag between two points")
+
+        @Option(name: .long, help: "Session ID")
+        var session: String
+
         @Option(name: .long, help: "Start position as X,Y")
         var from: String
+
         @Option(name: .long, help: "End position as X,Y")
         var to: String
+
         func run() throws {
-            let area = try requireArea()
+            let area = try requireArea(session: session)
             let fromPt = try parsePoint(from)
             let toPt = try parsePoint(to)
-            try sendAction(.drag(from: fromPt, to: toPt), area: area)
+            try sendAction(.drag(from: fromPt, to: toPt), area: area, session: session)
         }
     }
 }
@@ -406,6 +459,9 @@ struct Elements: ParsableCommand {
         abstract: "Discover interactive elements in the selected area"
     )
 
+    @Option(name: .long, help: "Session ID")
+    var session: String
+
     @Flag(name: .long, help: "Save annotated screenshot with numbered badges")
     var annotated: Bool = false
 
@@ -413,12 +469,10 @@ struct Elements: ParsableCommand {
     var output: String?
 
     func run() throws {
-        let area = try requireArea()
+        let area = try requireArea(session: session)
 
-        // Run accessibility discovery
         let axElements = ElementDiscovery.discover(area: area)
 
-        // Capture image for OCR
         let rect = CGRect(x: area.x, y: area.y, width: area.width, height: area.height)
         var ocrElements: [DiscoveredElement] = []
         if let image = CGWindowListCreateImage(rect, .optionOnScreenOnly, kCGNullWindowID, .bestResolution) {
@@ -433,22 +487,21 @@ struct Elements: ParsableCommand {
 
         let allElements = axElements + ocrElements
 
-        // Only warn if both sources found nothing
         if allElements.isEmpty {
             fputs("Warning: No elements found. Check Accessibility permissions or try a different area.\n", stderr)
         }
         let result = ElementScanResult(area: area, elements: allElements)
 
-        // Write cache
-        try ElementStore.write(result, to: Config.elementsFilePath, createDirectory: Config.stateDirectory)
+        // Write cache to session directory
+        let sessionDir = Config.sessionDirectory(for: session)
+        let elementsPath = Config.elementsFilePath(for: session)
+        try ElementStore.write(result, to: elementsPath, createDirectory: sessionDir)
 
-        // Output JSON
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let json = try encoder.encode(result)
         print(String(data: json, encoding: .utf8)!)
 
-        // Annotated screenshot if requested
         if annotated {
             let outputPath: String
             if let p = output {

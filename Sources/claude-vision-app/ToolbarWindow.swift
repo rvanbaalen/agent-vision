@@ -145,7 +145,6 @@ class ToolbarWindow: NSPanel {
     }
 
     @objc private func closeTapped() {
-        StateFile.delete(at: Config.stateFilePath)
         NSApp.terminate(nil)
     }
 
