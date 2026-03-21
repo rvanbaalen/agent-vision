@@ -30,75 +30,73 @@ Every command (except `start`) requires `--session <uuid>`. Multiple Claude inst
 
 ### `claude-vision start`
 
-Launches the floating toolbar at the bottom center of your screen. The toolbar has three buttons: **Select Area** (drag to mark a capture region), **Select Window** (hover and click a window to select it), and **Close** (quit).
+Creates a new session and launches the floating toolbar. Prints the session UUID to stdout. The toolbar has three buttons: **Select Area** (drag to mark a capture region), **Select Window** (hover and click a window to select it), and **Close** (quit).
 
 ```
 $ claude-vision start
-Claude Vision started. Use the toolbar to select an area.
-
-$ claude-vision start  # already running
-Claude Vision is already running (PID 12345)
+a1b2c3d4-e5f6-7890-abcd-ef1234567890
 ```
 
-### `claude-vision wait [--timeout N]`
+All subsequent commands require `--session <uuid>`.
+
+### `claude-vision wait --session <uuid> [--timeout N]`
 
 Blocks until an area has been selected. Default timeout: 60 seconds.
 
 ```
-$ claude-vision wait
+$ claude-vision wait --session $SESSION
 Area selected: 800x600 at (100, 200)
 
-$ claude-vision wait --timeout 10  # if no selection in time
+$ claude-vision wait --session $SESSION --timeout 10
 No area selected within 10s
 ```
 
-### `claude-vision capture [--output PATH]`
+### `claude-vision capture --session <uuid> [--output PATH]`
 
 Captures the selected area and saves it as a PNG. Prints the absolute file path to stdout. If `--output` is not specified, saves to a temp file.
 
 ```
-$ claude-vision capture
+$ claude-vision capture --session $SESSION
 /var/folders/.../claude-vision-capture-1234567890.png
 
-$ claude-vision capture --output ./screenshot.png
+$ claude-vision capture --session $SESSION --output ./screenshot.png
 ./screenshot.png
 ```
 
-### `claude-vision calibrate [--output PATH]`
+### `claude-vision calibrate --session <uuid> [--output PATH]`
 
-Captures the selected area with four crosshair markers at known coordinates overlaid on the image. Use this at the start of a session so Claude can map visual positions to click coordinates accurately.
+Captures the selected area with four crosshair markers at known coordinates overlaid on the image. Fallback for when element discovery doesn't work.
 
 ```
-$ claude-vision calibrate
+$ claude-vision calibrate --session $SESSION
 /var/folders/.../claude-vision-calibrate-1234567890.png
 Crosshairs at: (200,150) (600,150) (200,450) (600,450)
-Use these reference points to estimate click coordinates for `claude-vision control click --at X,Y`
 ```
 
-### `claude-vision preview --at X,Y [--output PATH]`
+### `claude-vision preview --session <uuid> --at X,Y [--output PATH]`
 
 Captures the selected area with a green crosshair drawn at the specified position — without actually clicking. Use this to verify click coordinates before executing a control command.
 
 ```
-$ claude-vision preview --at 200,150
+$ claude-vision preview --session $SESSION --at 200,150
 /var/folders/.../claude-vision-preview-1234567890.png
 ```
 
-### `claude-vision stop`
+### `claude-vision stop --session <uuid>`
 
-Stops the app and cleans up. Idempotent — safe to call even if not running.
+Stops the session and cleans up its state directory.
 
 ```
-$ claude-vision stop
-Claude Vision stopped.
+$ claude-vision stop --session $SESSION
+Session stopped.
 ```
 
-### `claude-vision elements [--annotated] [--output PATH]`
+### `claude-vision elements --session <uuid> [--annotated] [--output PATH]`
 
 Discovers interactive elements in the selected area using the macOS Accessibility API and Vision OCR. Prints a JSON list of elements to stdout, each with an index, role, label, and exact coordinates. Use this instead of guessing coordinates from screenshots.
 
 ```
-$ claude-vision elements
+$ claude-vision elements --session $SESSION
 {
   "area": { "x": 100, "y": 200, "width": 800, "height": 600 },
   "elementCount": 5,
@@ -109,72 +107,72 @@ $ claude-vision elements
   ]
 }
 
-$ claude-vision elements --annotated
+$ claude-vision elements --session $SESSION --annotated
 # Same JSON output + saves annotated screenshot with numbered badges on each element
 # Screenshot path printed to stderr
 ```
 
 The `--annotated` flag saves a screenshot with numbered badges overlaid on each element (blue for accessibility-sourced, orange for OCR-sourced). Useful when you need spatial context.
 
-### `claude-vision control click --at X,Y` or `--element N`
+### `claude-vision control click --session <uuid> --at X,Y` or `--element N`
 
 Left-clicks at a position. Two targeting modes:
 
 ```
 # By element index (preferred — focus-free, uses AX API directly)
-$ claude-vision control click --element 1
+$ claude-vision control click --session $SESSION --element 1
 Clicked Submit (focus-free)
 
 # By manual coordinates (fallback — uses CGEvent, steals focus)
-$ claude-vision control click --at 150,300
+$ claude-vision control click --session $SESSION --at 150,300
 Clicked at (150, 300)
 ```
 
 `--element N` uses the macOS Accessibility API to press the element directly — **it does not move the cursor or steal focus**. You can keep working while Claude interacts with the UI. `--at X,Y` falls back to CGEvent which does move the cursor.
 
-### `claude-vision control type --text TEXT [--element N]`
+### `claude-vision control type --session <uuid> --text TEXT [--element N]`
 
 Types text. Two modes:
 
 ```
 # Focus-free: set text directly on a field by element index (replaces field value)
-$ claude-vision control type --text "hello world" --element 2
+$ claude-vision control type --session $SESSION --text "hello world" --element 2
 Typed into Email (focus-free)
 
 # Legacy: type keystrokes at current cursor position (requires prior focus, steals focus)
-$ claude-vision control type --text "hello world"
+$ claude-vision control type --session $SESSION --text "hello world"
 Typed "hello world"
 ```
 
 With `--element N`, the text is set directly via the Accessibility API — no cursor movement, no focus steal. Note: this **replaces** the field's entire value rather than appending.
 
-### `claude-vision control key --key KEY`
+### `claude-vision control key --session <uuid> --key KEY`
 
 Presses a key or key combination. Supports: `enter`, `tab`, `escape`, `space`, `delete`, `backspace`, `up`, `down`, `left`, `right`, `home`, `end`. Modifiers: `cmd+`, `shift+`, `alt+`, `ctrl+`.
 
 ```
-$ claude-vision control key --key enter
+$ claude-vision control key --session $SESSION --key enter
 Pressed enter
 
-$ claude-vision control key --key "cmd+a"
+$ claude-vision control key --session $SESSION --key "cmd+a"
 Pressed cmd+a
 ```
 
-### `claude-vision control scroll --delta DX,DY [--at X,Y]`
+### `claude-vision control scroll --session <uuid> --delta DX,DY [--at X,Y]`
 
 Scrolls by pixel delta. Negative Y = scroll down, positive Y = scroll up. Position defaults to center of area.
 
 ```
-$ claude-vision control scroll --delta 0,-100
+$ claude-vision control scroll --session $SESSION --delta 0,-100
 Scrolled by (0, -100) at (200, 300)
 ```
 
-### `claude-vision control drag --from X,Y --to X,Y`
+### `claude-vision control drag --session <uuid> --from X,Y --to X,Y`
 
 Click-and-drag between two points. Useful for mobile simulator swipe gestures.
 
 ```
-$ claude-vision control drag --from 150,400 --to 150,100
+$ claude-vision control drag --session $SESSION --from 150,400 --to 150,100
 Dragged from (150, 400) to (150, 100)
 ```
 
@@ -247,7 +245,7 @@ This works for both native macOS apps and web content in browsers. The accessibi
 
 **`--element` is focus-free.** When you use `--element`, Claude interacts via the Accessibility API — the system cursor doesn't move and the user's active window stays focused. The user can keep working while Claude clicks buttons and fills forms.
 
-**Re-scan after every action that changes the UI.** After any click, navigation, form submission, or keystroke that could change what's on screen, run `claude-vision elements` again before your next interaction. Element indices change when the UI updates — stale indices will click the wrong thing. The pattern is always: **scan → act → re-scan → act → re-scan → ...**
+**Re-scan after every action that changes the UI.** After any click, navigation, form submission, or keystroke that could change what's on screen, run `claude-vision elements --session $SESSION` again before your next interaction. Element indices change when the UI updates — stale indices will click the wrong thing. The pattern is always: **scan → act → re-scan → act → re-scan → ...**
 
 **When to use `elements` vs manual coordinates:**
 - **Use `--element N`** for clicking buttons, links, form fields, menu items — anything interactive. Focus-free.
@@ -269,7 +267,7 @@ Example:
 
 ```bash
 # 1. Capture current state as reference
-claude-vision capture --output /tmp/before.png
+claude-vision capture --session $SESSION --output /tmp/before.png
 
 # 2. Make your code changes...
 
@@ -277,7 +275,7 @@ claude-vision capture --output /tmp/before.png
 sleep 2
 
 # 4. Capture the result
-claude-vision capture --output /tmp/after.png
+claude-vision capture --session $SESSION --output /tmp/after.png
 
 # 5. Read both screenshots to compare
 # Use the Read tool on both PNGs to see them
@@ -289,7 +287,7 @@ When asked to recreate or match an existing design:
 
 ```bash
 # Capture the reference design
-claude-vision capture --output /tmp/reference.png
+claude-vision capture --session $SESSION --output /tmp/reference.png
 # Read it to understand the layout, colors, spacing, typography
 # Then implement and capture your result to compare
 ```
@@ -300,7 +298,7 @@ For longer tasks, capture periodically to verify progress:
 
 ```bash
 # After each significant change
-claude-vision capture
+claude-vision capture --session $SESSION
 # Read the resulting PNG to check your work
 ```
 
@@ -310,65 +308,65 @@ Every interaction follows the **scan → act → re-scan** loop. Never reuse ele
 
 ```bash
 # 1. Scan to see what's on screen
-claude-vision elements
+claude-vision elements --session $SESSION
 
 # 2. Act on an element
-claude-vision control click --element 3
+claude-vision control click --session $SESSION --element 3
 
 # 3. Wait for UI to update
 sleep 0.5
 
 # 4. Re-scan — the UI changed, old indices are stale
-claude-vision elements
+claude-vision elements --session $SESSION
 # Now you see the NEW elements. Pick your next target from THIS scan.
 
 # 5. Act again
-claude-vision control click --element 1
+claude-vision control click --session $SESSION --element 1
 
 # 6. Re-scan again...
-claude-vision elements
+claude-vision elements --session $SESSION
 # Repeat for every interaction. Never skip the re-scan.
 ```
 
 **Example: Navigating Finder folders**
 ```bash
-claude-vision elements           # see files and folders
-claude-vision control click --element 5   # open "Documents" folder
+claude-vision elements --session $SESSION           # see files and folders
+claude-vision control click --session $SESSION --element 5   # open "Documents" folder
 sleep 0.5
-claude-vision elements           # NOW see contents of Documents
-claude-vision control click --element 3   # open "Projects" subfolder
+claude-vision elements --session $SESSION           # NOW see contents of Documents
+claude-vision control click --session $SESSION --element 3   # open "Projects" subfolder
 sleep 0.5
-claude-vision elements           # see contents of Projects
+claude-vision elements --session $SESSION           # see contents of Projects
 ```
 
 **Fallback: Manual coordinate targeting** (when element isn't in the scan):
 
 ```bash
 # Preview — the green DOT must be on the target element
-claude-vision preview --at 400,150
+claude-vision preview --session $SESSION --at 400,150
 # Read the preview. If the dot is off, recalculate and preview again.
 
 # Only click once the dot is confirmed on target
-claude-vision control click --at 400,150
+claude-vision control click --session $SESSION --at 400,150
 ```
 
 ### Workflow: Filling a Form
 
 ```bash
 # Discover form elements
-claude-vision elements
+claude-vision elements --session $SESSION
 # JSON shows: index 1 = textField "Name", index 2 = textField "Email", index 3 = button "Submit"
 
 # Set field values directly (focus-free — doesn't steal cursor)
-claude-vision control type --text "John Doe" --element 1
-claude-vision control type --text "john@example.com" --element 2
+claude-vision control type --session $SESSION --text "John Doe" --element 1
+claude-vision control type --session $SESSION --text "john@example.com" --element 2
 
 # Click submit
-claude-vision control click --element 3
+claude-vision control click --session $SESSION --element 3
 
 # Capture to verify
 sleep 1
-claude-vision capture
+claude-vision capture --session $SESSION
 ```
 
 Note: `type --element` replaces the field's entire value. To append text to an existing value, use `type --text` without `--element` (requires prior focus via click).
@@ -379,29 +377,29 @@ Use `scroll --delta` for normal scrolling:
 
 ```bash
 # Scroll down
-claude-vision control scroll --delta 0,-300
+claude-vision control scroll --session $SESSION --delta 0,-300
 
 # Scroll up
-claude-vision control scroll --delta 0,300
+claude-vision control scroll --session $SESSION --delta 0,300
 
 sleep 0.5
-claude-vision capture
+claude-vision capture --session $SESSION
 ```
 
 **Emulators and simulators need drag-to-scroll.** If the capture area contains a mobile emulator/simulator (iOS Simulator, Android Emulator, Expo Go, device preview frames), use `drag` instead of `scroll` — these interfaces respond to touch/swipe gestures, not scroll wheel events.
 
 ```bash
 # Scroll down in an emulator (swipe up = drag from bottom to top)
-claude-vision control drag --from 200,500 --to 200,200
+claude-vision control drag --session $SESSION --from 200,500 --to 200,200
 
 # Scroll up in an emulator (drag from top to bottom)
-claude-vision control drag --from 200,200 --to 200,500
+claude-vision control drag --session $SESSION --from 200,200 --to 200,500
 
 # Horizontal swipe (e.g. carousel, page navigation)
-claude-vision control drag --from 350,300 --to 50,300
+claude-vision control drag --session $SESSION --from 350,300 --to 50,300
 
 sleep 0.5
-claude-vision capture
+claude-vision capture --session $SESSION
 ```
 
 ### Control Coordinates
@@ -413,18 +411,18 @@ claude-vision capture
 
 ### Targeting Elements
 
-**Preferred: Use `elements` for exact targeting.** Run `claude-vision elements` to get a JSON list of every interactive element with its exact center coordinates. Pick the element by its role and label, then `click --element N`. No guessing, no previewing, no iteration.
+**Preferred: Use `elements` for exact targeting.** Run `claude-vision elements --session $SESSION` to get a JSON list of every interactive element with its exact center coordinates. Pick the element by its role and label, then `click --element N`. No guessing, no previewing, no iteration.
 
 ```bash
-claude-vision elements                    # scan
-claude-vision control click --element 5   # click — done
+claude-vision elements --session $SESSION                    # scan
+claude-vision control click --session $SESSION --element 5   # click — done
 ```
 
 **Always re-scan after UI changes.** Element indices may change after clicks, navigation, or page loads. Run `elements` again before each interaction.
 
 **Fallback: Manual coordinates.** For elements not in the scan (custom-drawn UIs, canvas elements), use `--at X,Y`:
 1. The screenshot maps 1:1 to the area coordinate space — pixel position = click coordinate
-2. Use `claude-vision preview --at X,Y` to verify before clicking
+2. Use `claude-vision preview --session $SESSION --at X,Y` to verify before clicking
 3. The green **dot** marks the click point (the label may be offset)
 4. Recalculate if the dot is off — don't nudge by small amounts
 
@@ -432,7 +430,7 @@ claude-vision control click --element 5   # click — done
 
 | Error | What to do |
 |-------|-----------|
-| `No element scan found` | Run `claude-vision elements` before using `--element` |
+| `No element scan found` | Run `claude-vision elements --session $SESSION` before using `--element` |
 | `Element N not found` | The index is out of range — re-run `elements` and check the valid range |
 | `Stale scan: capture area changed` | The area was reselected since the last scan — run `elements` again |
 | `Specify either --at or --element, not both` | Use one targeting mode, not both |
@@ -447,7 +445,7 @@ claude-vision control click --element 5   # click — done
 
 > "I've completed [goal]. Would you like me to stop the Claude Vision session, or is there anything else you'd like me to do in this window?"
 
-If the user confirms, run `claude-vision stop`.
+If the user confirms, run `claude-vision stop --session $SESSION`.
 
 **If the goal is not yet completed** and you're stuck or unsure how to proceed, use `AskUserQuestion` to ask for feedback:
 
@@ -471,10 +469,10 @@ Do not silently give up or guess wildly. Ask the user.
 
 Follow this sequence for text input:
 
-1. **Scan** with `claude-vision elements` to find the target field
-2. **Click** the field with `claude-vision control click --element N`
+1. **Scan** with `claude-vision elements --session $SESSION` to find the target field
+2. **Click** the field with `claude-vision control click --session $SESSION --element N`
 3. **Capture** to confirm the field has focus (look for cursor/caret, focus ring)
-4. **Only then type** with `claude-vision control type --text "..."`
+4. **Only then type** with `claude-vision control type --session $SESSION --text "..."`
 5. **Capture again** to verify text was entered correctly
 
 If you cannot confirm focus visually, **do not type**. Click again or ask the user for help.
@@ -486,7 +484,7 @@ If `capture` fails:
 | Error | What to do |
 |-------|-----------|
 | `Claude Vision is not running` | Run `claude-vision start` and ask user to select an area |
-| `No area selected` | Run `claude-vision wait` or ask user to click "Select Area" or "Select Window" on the toolbar |
+| `No area selected` | Run `claude-vision wait --session $SESSION` or ask user to click "Select Area" or "Select Window" on the toolbar |
 | `Screen capture failed — no image returned` | Screen Recording permission not granted — ask user to enable it in System Settings > Privacy & Security > Screen Recording |
 
 ### Example: Full UI Development Session
