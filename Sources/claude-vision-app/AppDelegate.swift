@@ -11,7 +11,7 @@ private func handleSIGTERM(_: Int32) {
 class AppDelegate: NSObject, NSApplicationDelegate {
     var toolbarWindow: ToolbarWindow!
     var selectionOverlay: SelectionOverlay?
-    var windowSelectionOverlays: [WindowSelectionOverlay] = []
+    var windowSelectionController: WindowSelectionController?
     var borderWindow: BorderWindow?          // Stub — replaced in Task 7
     var actionWatcher: ActionWatcher?
     var feedbackWindow: ActionFeedbackWindow?
@@ -100,11 +100,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func beginWindowSelection() {
-        for screen in NSScreen.screens {
-            let overlay = WindowSelectionOverlay(screen: screen)
-            windowSelectionOverlays.append(overlay)
-            overlay.beginSelection()
-        }
+        windowSelectionController = WindowSelectionController()
+        windowSelectionController?.begin()
     }
 
     @objc func areaWasSelected(_ notification: Notification) {
@@ -112,8 +109,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         selectionOverlay?.endSelection()
         selectionOverlay = nil
-        for overlay in windowSelectionOverlays { overlay.endSelection() }
-        windowSelectionOverlays.removeAll()
+        windowSelectionController?.end()
+        windowSelectionController = nil
 
         // Update state file with area
         let state = AppState(pid: ProcessInfo.processInfo.processIdentifier, area: area)
@@ -136,8 +133,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func selectionWasCancelled() {
         selectionOverlay?.endSelection()
         selectionOverlay = nil
-        for overlay in windowSelectionOverlays { overlay.endSelection() }
-        windowSelectionOverlays.removeAll()
+        windowSelectionController?.end()
+        windowSelectionController = nil
         toolbarWindow.showToolbar()
     }
 

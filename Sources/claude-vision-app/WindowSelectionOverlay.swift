@@ -1,68 +1,112 @@
 import AppKit
 import ClaudeVisionShared
 
-class WindowSelectionOverlay: NSWindow {
-    private var selectionView: WindowSelectionView!
+/// Controller that manages window selection across all screens.
+/// Uses a global event monitor so mouse tracking works on every monitor.
+@MainActor
+class WindowSelectionController {
+    private var overlays: [WindowSelectionOverlay] = []
+    private var localMonitor: Any?
+    private var windowRects: [(pid: pid_t, name: String?, frame: CGRect)] = []
+    private var highlightedRect: CGRect?
+    private var highlightedName: String?
 
-    init(screen: NSScreen) {
-        super.init(
-            contentRect: screen.frame,
-            styleMask: .borderless,
-            backing: .buffered,
-            defer: false
+    func begin() {
+        // Create one overlay per screen
+        for screen in NSScreen.screens {
+            let overlay = WindowSelectionOverlay(screen: screen)
+            overlays.append(overlay)
+            overlay.orderFrontRegardless()
+        }
+
+        NSCursor.crosshair.push()
+        refreshWindowList()
+
+        // Global event monitor catches mouse events on ALL screens.
+        // The closure runs on the main thread but Swift 6 doesn't know that.
+        let controller = self
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .keyDown]) { event in
+            let type = event.type
+            let keyCode = event.keyCode
+            let shouldConsume = MainActor.assumeIsolated {
+                controller.handleEvent(type: type, keyCode: keyCode)
+            }
+            return shouldConsume ? nil : event
+        }
+    }
+
+    func end() {
+        if let monitor = localMonitor {
+            NSEvent.removeMonitor(monitor)
+            localMonitor = nil
+        }
+        NSCursor.pop()
+        for overlay in overlays { overlay.orderOut(nil) }
+        overlays.removeAll()
+    }
+
+    /// Returns true if the event should be consumed (not passed through).
+    private func handleEvent(type: NSEvent.EventType, keyCode: UInt16) -> Bool {
+        switch type {
+        case .mouseMoved:
+            handleMouseMoved()
+            return false // pass through
+        case .leftMouseDown:
+            handleClick()
+            return true // consume
+        case .keyDown:
+            if keyCode == 53 { // Escape
+                end()
+                NotificationCenter.default.post(name: .selectionCancelled, object: nil)
+            }
+            return true // consume all keys during selection
+        default:
+            return false
+        }
+    }
+
+    private func handleMouseMoved() {
+        refreshWindowList()
+
+        // NSEvent.mouseLocation is in AppKit coords (bottom-left origin, global)
+        let appKitPoint = NSEvent.mouseLocation
+
+        // Convert to Quartz coordinates (top-left origin) using the main screen height
+        // In AppKit global coords, the main screen origin is at bottom-left
+        // Quartz y = mainScreenHeight - appKitY
+        let mainScreenHeight = NSScreen.screens[0].frame.height
+        let quartzPoint = CGPoint(x: appKitPoint.x, y: mainScreenHeight - appKitPoint.y)
+
+        // Find topmost window containing the cursor
+        var found: (name: String?, frame: CGRect)?
+        for w in windowRects {
+            if w.frame.contains(quartzPoint) {
+                found = (name: w.name, frame: w.frame)
+                break // CGWindowList is front-to-back order
+            }
+        }
+
+        highlightedRect = found?.frame
+        highlightedName = found?.name
+
+        // Update all overlays
+        for overlay in overlays {
+            overlay.updateHighlight(quartzRect: highlightedRect, name: highlightedName)
+        }
+    }
+
+    private func handleClick() {
+        guard let rect = highlightedRect else { return }
+
+        let area = CaptureArea(
+            x: Double(rect.origin.x),
+            y: Double(rect.origin.y),
+            width: Double(rect.width),
+            height: Double(rect.height)
         )
 
-        level = .screenSaver
-        isOpaque = false
-        backgroundColor = NSColor.black.withAlphaComponent(0.3)
-        ignoresMouseEvents = false
-        collectionBehavior = [.canJoinAllSpaces]
-
-        selectionView = WindowSelectionView(frame: screen.frame)
-        contentView = selectionView
+        NotificationCenter.default.post(name: .areaSelected, object: area)
     }
-
-    override var canBecomeKey: Bool { true }
-
-    func beginSelection() {
-        makeKeyAndOrderFront(nil)
-        NSCursor.crosshair.push()
-    }
-
-    func endSelection() {
-        NSCursor.pop()
-        orderOut(nil)
-    }
-}
-
-class WindowSelectionView: NSView {
-    /// Window info from CGWindowList — cached on mouse move.
-    private var windowRects: [(pid: pid_t, name: String?, frame: CGRect)] = []
-    /// Currently highlighted window rect in screen (Quartz) coordinates.
-    private var highlightedRect: CGRect?
-    /// Label showing window name / dimensions.
-    private let infoLabel = NSTextField(labelWithString: "")
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-
-        infoLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
-        infoLabel.textColor = .white
-        infoLabel.backgroundColor = NSColor.black.withAlphaComponent(0.6)
-        infoLabel.isBezeled = false
-        infoLabel.drawsBackground = true
-        infoLabel.wantsLayer = true
-        infoLabel.layer?.cornerRadius = 4
-        infoLabel.isHidden = true
-        addSubview(infoLabel)
-
-        // Cache window list once at start
-        refreshWindowList()
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    // MARK: - Window List
 
     private func refreshWindowList() {
         windowRects = []
@@ -81,109 +125,111 @@ class WindowSelectionView: NSView {
                   let wh = boundsDict["Height"] as? CGFloat,
                   ww > 50, wh > 50 else { continue }
 
-            // Skip our own windows (toolbar, overlay, border)
             if pid == myPID { continue }
-
-            // Skip windows with layer 0 (some system elements)
             if let layer = info[kCGWindowLayer as String] as? Int, layer != 0 { continue }
 
             let name = info[kCGWindowOwnerName as String] as? String
             windowRects.append((pid: pid, name: name, frame: CGRect(x: wx, y: wy, width: ww, height: wh)))
         }
     }
+}
 
-    // MARK: - Mouse Tracking
+/// Overlay window for a single screen — draws the highlight. Managed by WindowSelectionController.
+class WindowSelectionOverlay: NSWindow {
+    private var highlightView: WindowHighlightView!
 
-    override func mouseMoved(with event: NSEvent) {
-        let screenPoint = NSEvent.mouseLocation
-        // Convert to Quartz coordinates (top-left origin)
-        guard let screenHeight = window?.screen?.frame.height ?? NSScreen.main?.frame.height else { return }
-        let quartzPoint = CGPoint(x: screenPoint.x, y: screenHeight - screenPoint.y)
+    init(screen: NSScreen) {
+        super.init(
+            contentRect: screen.frame,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
 
-        // Refresh window list on each move to catch changes
-        refreshWindowList()
+        level = .screenSaver
+        isOpaque = false
+        backgroundColor = NSColor.black.withAlphaComponent(0.3)
+        ignoresMouseEvents = false
+        collectionBehavior = [.canJoinAllSpaces]
 
-        // Find topmost window containing the cursor
-        var found: (name: String?, frame: CGRect)?
-        for w in windowRects {
-            if w.frame.contains(quartzPoint) {
-                found = (name: w.name, frame: w.frame)
-                break // CGWindowList is front-to-back order
+        highlightView = WindowHighlightView(frame: screen.frame)
+        highlightView.screenFrame = screen.frame
+        contentView = highlightView
+    }
+
+    override var canBecomeKey: Bool { true }
+
+    func updateHighlight(quartzRect: CGRect?, name: String?) {
+        highlightView.updateHighlight(quartzRect: quartzRect, name: name)
+    }
+}
+
+/// View that draws the window highlight on a single screen.
+class WindowHighlightView: NSView {
+    var screenFrame: NSRect = .zero
+    private var highlightRect: CGRect? // Quartz coords
+    private let infoLabel = NSTextField(labelWithString: "")
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+
+        infoLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        infoLabel.textColor = .white
+        infoLabel.backgroundColor = NSColor.black.withAlphaComponent(0.6)
+        infoLabel.isBezeled = false
+        infoLabel.drawsBackground = true
+        infoLabel.wantsLayer = true
+        infoLabel.layer?.cornerRadius = 4
+        infoLabel.isHidden = true
+        addSubview(infoLabel)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func updateHighlight(quartzRect: CGRect?, name: String?) {
+        highlightRect = quartzRect
+
+        if let rect = quartzRect, let name = name {
+            let viewRect = quartzToView(rect)
+
+            // Only show label if the highlight intersects this screen
+            if bounds.intersects(viewRect) {
+                infoLabel.stringValue = " \(name)  \(Int(rect.width))\u{00d7}\(Int(rect.height)) "
+                infoLabel.sizeToFit()
+                infoLabel.frame.origin = NSPoint(
+                    x: max(0, viewRect.minX - screenFrame.origin.x),
+                    y: min(bounds.height - 20, viewRect.maxY - screenFrame.origin.y + 4)
+                )
+                infoLabel.isHidden = false
+            } else {
+                infoLabel.isHidden = true
             }
-        }
-
-        if let hit = found {
-            highlightedRect = hit.frame
-            let label = hit.name ?? "Unknown"
-            infoLabel.stringValue = " \(label)  \(Int(hit.frame.width))\u{00d7}\(Int(hit.frame.height)) "
-            infoLabel.sizeToFit()
-
-            // Position label above the highlighted window (in view coords)
-            let viewRect = quartzToView(hit.frame, screenHeight: screenHeight)
-            infoLabel.frame.origin = NSPoint(x: viewRect.minX, y: viewRect.maxY + 4)
-            infoLabel.isHidden = false
         } else {
-            highlightedRect = nil
             infoLabel.isHidden = true
         }
 
         needsDisplay = true
     }
 
-    override func mouseDown(with event: NSEvent) {
-        guard let rect = highlightedRect else { return }
-
-        // rect is already in Quartz (top-left) coordinates — same as CaptureArea
-        let area = CaptureArea(
-            x: Double(rect.origin.x),
-            y: Double(rect.origin.y),
-            width: Double(rect.width),
-            height: Double(rect.height)
-        )
-
-        NotificationCenter.default.post(name: .areaSelected, object: area)
-    }
-
-    override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { // Escape
-            highlightedRect = nil
-            infoLabel.isHidden = true
-            needsDisplay = true
-            (window as? WindowSelectionOverlay)?.endSelection()
-            NotificationCenter.default.post(name: .selectionCancelled, object: nil)
-        }
-    }
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        // Track mouse movement across the entire view
-        for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.mouseMoved, .activeAlways],
-            owner: self,
-            userInfo: nil
-        ))
-    }
-
-    // MARK: - Drawing
-
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        guard let rect = highlightedRect,
-              let screenHeight = window?.screen?.frame.height ?? NSScreen.main?.frame.height else { return }
+        guard let rect = highlightRect else { return }
 
-        let viewRect = quartzToView(rect, screenHeight: screenHeight)
+        let viewRect = quartzToView(rect)
+
+        // Only draw if the highlight intersects this screen's view
+        guard bounds.intersects(viewRect) else { return }
+
+        // Clip to our bounds (window may span beyond this screen)
+        let clipped = viewRect.intersection(bounds)
 
         // Clear the highlight area (punch through the dark overlay)
         NSColor.clear.setFill()
-        NSBezierPath(rect: viewRect).fill()
+        NSBezierPath(rect: clipped).fill()
 
         // Draw highlight border
-        let path = NSBezierPath(rect: viewRect)
+        let path = NSBezierPath(rect: clipped)
         NSColor(red: 0, green: 0.478, blue: 1, alpha: 0.3).setFill()
         path.fill()
         NSColor(red: 0, green: 0.478, blue: 1, alpha: 1).setStroke()
@@ -191,13 +237,13 @@ class WindowSelectionView: NSView {
         path.stroke()
     }
 
-    // MARK: - Coordinate Conversion
-
-    /// Convert Quartz (top-left origin) rect to NSView (bottom-left origin) rect.
-    private func quartzToView(_ rect: CGRect, screenHeight: CGFloat) -> NSRect {
+    /// Convert Quartz (top-left origin, global) rect to this view's coordinate space.
+    private func quartzToView(_ rect: CGRect) -> NSRect {
+        // Main screen height is the reference for Quartz ↔ AppKit conversion
+        let mainScreenHeight = NSScreen.screens[0].frame.height
         return NSRect(
             x: rect.origin.x,
-            y: screenHeight - rect.origin.y - rect.height,
+            y: mainScreenHeight - rect.origin.y - rect.height,
             width: rect.width,
             height: rect.height
         )
