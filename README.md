@@ -335,36 +335,45 @@ sleep 1
 claude-vision capture
 ```
 
-### Workflow: Scrolling to Find Content
+### Workflow: Scrolling
+
+**First, determine if you're looking at a mobile interface.** Capture a screenshot and check for mobile UI indicators: a phone-shaped frame, a simulator chrome, narrow viewport (< 500px wide), mobile navigation bars, hamburger menus, or bottom tab bars. This matters because mobile and desktop scroll differently.
+
+**Mobile interface (simulator, responsive preview, device frame):**
+Always use **drag-to-scroll** — mobile UIs respond to touch/swipe gestures, not scroll wheel events. `scroll --delta` may not work or may behave unexpectedly.
 
 ```bash
-# Capture current view
-claude-vision capture
+# Scroll down in a mobile UI (swipe up = drag from bottom to top)
+claude-vision control drag --from 200,500 --to 200,200
 
-# Option 1: Scroll with delta
-claude-vision control scroll --delta 0,-300
+# Scroll up (swipe down = drag from top to bottom)
+claude-vision control drag --from 200,200 --to 200,500
 
-# Option 2: If a scrollbar is visible, drag its thumb directly
-# This is more precise — calculate the thumb position and drag it to where you need
-claude-vision control drag --from 780,200 --to 780,400
+# Horizontal swipe (e.g. carousel)
+claude-vision control drag --from 350,300 --to 50,300
 
-# Capture again to see new content
 sleep 0.5
 claude-vision capture
 ```
 
-**Tip:** When you see a scrollbar with a visible thumb, dragging it is often more predictable than scroll deltas. Calculate the thumb's current position, then drag it to the position that corresponds to the content you want to see.
-
-### Workflow: Mobile Simulator Swipe
+**Desktop interface (browser, native app):**
+Use `scroll --delta` for normal scrolling. Fall back to drag if scroll doesn't work.
 
 ```bash
-# Swipe up in a mobile simulator (drag from bottom to top)
-claude-vision control drag --from 200,500 --to 200,100
+# Scroll down
+claude-vision control scroll --delta 0,-300
 
-# Wait and capture
-sleep 1
+# Scroll up
+claude-vision control scroll --delta 0,300
+
+# If a scrollbar is visible, drag its thumb for precise positioning
+claude-vision control drag --from 780,200 --to 780,400
+
+sleep 0.5
 claude-vision capture
 ```
+
+**When in doubt, use drag.** It works for both mobile and desktop UIs, while `scroll --delta` only works reliably on desktop.
 
 ### Control Coordinates
 
