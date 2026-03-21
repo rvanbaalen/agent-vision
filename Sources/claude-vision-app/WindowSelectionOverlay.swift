@@ -1,115 +1,128 @@
 import AppKit
 import ClaudeVisionShared
 
-/// Controller that manages window selection across all screens.
-/// Polls NSEvent.mouseLocation via timer so tracking works on every monitor.
+/// Lightweight window selection — no full-screen overlay.
+/// Shows a floating border highlight over the window under the cursor.
 @MainActor
 class WindowSelectionController {
-    private var overlays: [WindowSelectionOverlay] = []
+    /// Click-through border window that highlights the window under the cursor.
+    private var highlightWindow: NSWindow?
     private var pollTimer: Timer?
-    private var clickMonitor: Any?
-    private var keyMonitor: Any?
-    private var windowRects: [(pid: pid_t, name: String?, frame: CGRect)] = []
-    private var highlightedRect: CGRect?
-    private var highlightedName: String?
+    private var globalClickMonitor: Any?
+    private var globalKeyMonitor: Any?
+    private var localKeyMonitor: Any?
+    /// The Quartz-coordinate bounds of the currently highlighted window.
+    private var currentRect: CGRect?
 
     func begin() {
-        // Create one overlay per screen
-        for screen in NSScreen.screens {
-            let overlay = WindowSelectionOverlay(screen: screen)
-            overlays.append(overlay)
-            overlay.orderFrontRegardless()
-        }
-        // Make the first overlay key so it can receive keyboard events
-        overlays.first?.makeKeyAndOrderFront(nil)
+        // Create the highlight border window — click-through, no background
+        let border = NSPanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        border.level = .floating
+        border.isOpaque = false
+        border.backgroundColor = .clear
+        border.ignoresMouseEvents = true
+        border.hasShadow = false
+        border.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
+        let borderView = HighlightBorderView(frame: .zero)
+        border.contentView = borderView
+
+        highlightWindow = border
         NSCursor.crosshair.push()
-        refreshWindowList()
 
-        // Poll mouse position — works across all monitors regardless of key window
+        // Poll mouse position at 60fps
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.handleMouseMoved()
-            }
+            MainActor.assumeIsolated { self?.tick() }
         }
 
-        // Monitor clicks and keyboard across the app
-        let controller = self
-        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
-            MainActor.assumeIsolated { controller.handleClick() }
-            return nil // consume
+        // Global monitors catch events even when our app isn't focused
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handleClick() }
         }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if event.keyCode == 53 { // Escape
-                MainActor.assumeIsolated {
-                    controller.end()
-                    NotificationCenter.default.post(name: .selectionCancelled, object: nil)
-                }
-            }
-            return nil // consume
+        globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 { MainActor.assumeIsolated { self?.handleEscape() } }
+        }
+        // Local monitors for when our app is focused
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if event.keyCode == 53 { MainActor.assumeIsolated { self?.handleEscape() } }
+            return nil
         }
     }
 
     func end() {
         pollTimer?.invalidate()
         pollTimer = nil
-        if let m = clickMonitor { NSEvent.removeMonitor(m); clickMonitor = nil }
-        if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
+        if let m = globalClickMonitor { NSEvent.removeMonitor(m); globalClickMonitor = nil }
+        if let m = globalKeyMonitor { NSEvent.removeMonitor(m); globalKeyMonitor = nil }
+        if let m = localKeyMonitor { NSEvent.removeMonitor(m); localKeyMonitor = nil }
         NSCursor.pop()
-        for overlay in overlays { overlay.orderOut(nil) }
-        overlays.removeAll()
+        highlightWindow?.orderOut(nil)
+        highlightWindow = nil
+        currentRect = nil
     }
 
-    private func handleMouseMoved() {
-        refreshWindowList()
+    private func tick() {
+        let mouseAppKit = NSEvent.mouseLocation
+        let mainHeight = NSScreen.screens[0].frame.height
+        let mouseQuartz = CGPoint(x: mouseAppKit.x, y: mainHeight - mouseAppKit.y)
 
-        // NSEvent.mouseLocation is in AppKit coords (bottom-left origin, global)
-        let appKitPoint = NSEvent.mouseLocation
-
-        // Convert to Quartz coordinates (top-left origin) using the main screen height
-        // In AppKit global coords, the main screen origin is at bottom-left
-        // Quartz y = mainScreenHeight - appKitY
-        let mainScreenHeight = NSScreen.screens[0].frame.height
-        let quartzPoint = CGPoint(x: appKitPoint.x, y: mainScreenHeight - appKitPoint.y)
-
-        // Find topmost window containing the cursor
-        var found: (name: String?, frame: CGRect)?
-        for w in windowRects {
-            if w.frame.contains(quartzPoint) {
-                found = (name: w.name, frame: w.frame)
-                break // CGWindowList is front-to-back order
+        // Find topmost window under cursor
+        var hitRect: CGRect?
+        for w in getWindowList() {
+            if w.frame.contains(mouseQuartz) {
+                hitRect = w.frame
+                break
             }
         }
 
-        highlightedRect = found?.frame
-        highlightedName = found?.name
+        currentRect = hitRect
 
-        // Update all overlays
-        for overlay in overlays {
-            overlay.updateHighlight(quartzRect: highlightedRect, name: highlightedName)
+        if let qRect = hitRect {
+            // Convert Quartz rect to AppKit screen coords
+            let appKitRect = NSRect(
+                x: qRect.origin.x,
+                y: mainHeight - qRect.origin.y - qRect.height,
+                width: qRect.width,
+                height: qRect.height
+            )
+            highlightWindow?.setFrame(appKitRect, display: false)
+            (highlightWindow?.contentView as? HighlightBorderView)?.frame = NSRect(origin: .zero, size: appKitRect.size)
+            highlightWindow?.contentView?.needsDisplay = true
+            highlightWindow?.orderFrontRegardless()
+        } else {
+            highlightWindow?.orderOut(nil)
         }
     }
 
     private func handleClick() {
-        guard let rect = highlightedRect else { return }
-
+        guard let rect = currentRect else { return }
+        end()
         let area = CaptureArea(
             x: Double(rect.origin.x),
             y: Double(rect.origin.y),
             width: Double(rect.width),
             height: Double(rect.height)
         )
-
         NotificationCenter.default.post(name: .areaSelected, object: area)
     }
 
-    private func refreshWindowList() {
-        windowRects = []
+    private func handleEscape() {
+        end()
+        NotificationCenter.default.post(name: .selectionCancelled, object: nil)
+    }
+
+    private func getWindowList() -> [(name: String?, frame: CGRect)] {
         guard let list = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-        ) as? [[String: Any]] else { return }
+        ) as? [[String: Any]] else { return [] }
 
         let myPID = ProcessInfo.processInfo.processIdentifier
+        var results: [(name: String?, frame: CGRect)] = []
 
         for info in list {
             guard let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
@@ -124,123 +137,18 @@ class WindowSelectionController {
             if let layer = info[kCGWindowLayer as String] as? Int, layer != 0 { continue }
 
             let name = info[kCGWindowOwnerName as String] as? String
-            windowRects.append((pid: pid, name: name, frame: CGRect(x: wx, y: wy, width: ww, height: wh)))
+            results.append((name: name, frame: CGRect(x: wx, y: wy, width: ww, height: wh)))
         }
+        return results
     }
 }
 
-/// Overlay window for a single screen — draws the highlight. Managed by WindowSelectionController.
-class WindowSelectionOverlay: NSWindow {
-    private var highlightView: WindowHighlightView!
-
-    init(screen: NSScreen) {
-        super.init(
-            contentRect: screen.frame,
-            styleMask: .borderless,
-            backing: .buffered,
-            defer: false
-        )
-
-        level = .screenSaver
-        isOpaque = false
-        backgroundColor = NSColor.black.withAlphaComponent(0.3)
-        ignoresMouseEvents = false
-        collectionBehavior = [.canJoinAllSpaces]
-
-        highlightView = WindowHighlightView(frame: screen.frame)
-        highlightView.screenFrame = screen.frame
-        contentView = highlightView
-    }
-
-    override var canBecomeKey: Bool { true }
-
-    func updateHighlight(quartzRect: CGRect?, name: String?) {
-        highlightView.updateHighlight(quartzRect: quartzRect, name: name)
-    }
-}
-
-/// View that draws the window highlight on a single screen.
-class WindowHighlightView: NSView {
-    var screenFrame: NSRect = .zero
-    private var highlightRect: CGRect? // Quartz coords
-    private let infoLabel = NSTextField(labelWithString: "")
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-
-        infoLabel.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
-        infoLabel.textColor = .white
-        infoLabel.backgroundColor = NSColor.black.withAlphaComponent(0.6)
-        infoLabel.isBezeled = false
-        infoLabel.drawsBackground = true
-        infoLabel.wantsLayer = true
-        infoLabel.layer?.cornerRadius = 4
-        infoLabel.isHidden = true
-        addSubview(infoLabel)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    func updateHighlight(quartzRect: CGRect?, name: String?) {
-        highlightRect = quartzRect
-
-        if let rect = quartzRect, let name = name {
-            let viewRect = quartzToView(rect)
-
-            // Only show label if the highlight intersects this screen
-            if bounds.intersects(viewRect) {
-                infoLabel.stringValue = " \(name)  \(Int(rect.width))\u{00d7}\(Int(rect.height)) "
-                infoLabel.sizeToFit()
-                infoLabel.frame.origin = NSPoint(
-                    x: max(0, viewRect.minX - screenFrame.origin.x),
-                    y: min(bounds.height - 20, viewRect.maxY - screenFrame.origin.y + 4)
-                )
-                infoLabel.isHidden = false
-            } else {
-                infoLabel.isHidden = true
-            }
-        } else {
-            infoLabel.isHidden = true
-        }
-
-        needsDisplay = true
-    }
-
+/// Simple view that draws a blue border — nothing else.
+class HighlightBorderView: NSView {
     override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        guard let rect = highlightRect else { return }
-
-        let viewRect = quartzToView(rect)
-
-        // Only draw if the highlight intersects this screen's view
-        guard bounds.intersects(viewRect) else { return }
-
-        // Clip to our bounds (window may span beyond this screen)
-        let clipped = viewRect.intersection(bounds)
-
-        // Clear the highlight area (punch through the dark overlay)
-        NSColor.clear.setFill()
-        NSBezierPath(rect: clipped).fill()
-
-        // Draw highlight border
-        let path = NSBezierPath(rect: clipped)
-        NSColor(red: 0, green: 0.478, blue: 1, alpha: 0.3).setFill()
-        path.fill()
+        let path = NSBezierPath(rect: bounds.insetBy(dx: 2, dy: 2))
         NSColor(red: 0, green: 0.478, blue: 1, alpha: 1).setStroke()
-        path.lineWidth = 3
+        path.lineWidth = 4
         path.stroke()
-    }
-
-    /// Convert Quartz (top-left origin, global) rect to this view's coordinate space.
-    private func quartzToView(_ rect: CGRect) -> NSRect {
-        // Main screen height is the reference for Quartz ↔ AppKit conversion
-        let mainScreenHeight = NSScreen.screens[0].frame.height
-        return NSRect(
-            x: rect.origin.x,
-            y: mainScreenHeight - rect.origin.y - rect.height,
-            width: rect.width,
-            height: rect.height
-        )
     }
 }
