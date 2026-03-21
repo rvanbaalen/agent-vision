@@ -272,11 +272,42 @@ struct Control: ParsableCommand {
 extension Control {
     struct Click: ParsableCommand {
         static let configuration = CommandConfiguration(abstract: "Left-click at a position")
+
         @Option(name: .long, help: "Position as X,Y relative to area top-left")
-        var at: String
+        var at: String?
+
+        @Option(name: .long, help: "Element index from last 'elements' scan")
+        var element: Int?
+
         func run() throws {
             let area = try requireArea()
-            let point = try parsePoint(at)
+
+            let point: Point
+            if let elementIndex = element {
+                guard at == nil else {
+                    fputs("Specify either --at or --element, not both.\n", stderr)
+                    throw ExitCode.failure
+                }
+                guard let scanResult = try ElementStore.read(from: Config.elementsFilePath) else {
+                    fputs("No element scan found. Run 'claude-vision elements' first.\n", stderr)
+                    throw ExitCode.failure
+                }
+                if ElementStore.isStale(scanResult, currentArea: area) {
+                    fputs("Stale scan: capture area changed since last scan. Run 'claude-vision elements' again.\n", stderr)
+                    throw ExitCode.failure
+                }
+                guard let el = ElementStore.lookup(index: elementIndex, in: scanResult) else {
+                    fputs("Element \(elementIndex) not found. Last scan found \(scanResult.elementCount) elements (1-\(scanResult.elementCount)).\n", stderr)
+                    throw ExitCode.failure
+                }
+                point = el.center
+            } else if let atStr = at {
+                point = try parsePoint(atStr)
+            } else {
+                fputs("Specify --at X,Y or --element N.\n", stderr)
+                throw ExitCode.failure
+            }
+
             try sendAction(.click(at: point), area: area)
         }
     }
