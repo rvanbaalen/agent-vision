@@ -17,10 +17,10 @@ You can then launch from Spotlight/Applications or use the CLI. Requires macOS 1
 
 ```bash
 claude-vision start          # Shows floating toolbar
-# Click "Select Area" on the toolbar, drag to select a screen region
+# Click "Select Window" to pick a window, or "Select Area" to drag-select a region
 claude-vision wait           # Blocks until area is selected
-claude-vision capture        # Screenshot the area
-claude-vision control click --at 100,50   # Click within the area
+claude-vision elements       # Discover clickable elements
+claude-vision control click --element 1   # Click an element (focus-free)
 claude-vision stop           # Quit
 ```
 
@@ -28,7 +28,7 @@ claude-vision stop           # Quit
 
 ### `claude-vision start`
 
-Launches the floating toolbar at the bottom center of your screen. The toolbar has two buttons: **Select Area** (drag to mark a capture region) and **Close** (quit).
+Launches the floating toolbar at the bottom center of your screen. The toolbar has three buttons: **Select Area** (drag to mark a capture region), **Select Window** (hover and click a window to select it), and **Close** (quit).
 
 ```
 $ claude-vision start
@@ -213,8 +213,8 @@ At the beginning of a UI task, ask the user to set up a capture area:
 I'd like to see the UI as I work on it. Can you do the following:
 1. Run `claude-vision start` (I'll do this for you if you prefer)
 2. Open the target UI in your browser/simulator
-3. Click "Select Area" on the Claude Vision toolbar
-4. Drag to select the area showing the UI
+3. Click "Select Window" to select the entire window, or "Select Area" to drag-select a region
+4. For "Select Window": hover over the target window and click it
 
 Then I can take screenshots as I make changes to verify my work visually.
 ```
@@ -436,6 +436,20 @@ claude-vision control click --element 5   # click — done
 | `action timed out` | The GUI may not be responding — ask user to check if Claude Vision is still running |
 | `unknown key` | Check supported key names in `claude-vision control key --help` |
 
+### Ending a Session
+
+**When your goal is completed**, use the `AskUserQuestion` tool to ask the user if they'd like to stop the Claude Vision session:
+
+> "I've completed [goal]. Would you like me to stop the Claude Vision session, or is there anything else you'd like me to do in this window?"
+
+If the user confirms, run `claude-vision stop`.
+
+**If the goal is not yet completed** and you're stuck or unsure how to proceed, use `AskUserQuestion` to ask for feedback:
+
+> "I'm having trouble [specific issue]. Could you [specific ask — e.g., 'point me to the right element', 'confirm this is the right window', 'describe what you'd like me to click']?"
+
+Do not silently give up or guess wildly. Ask the user.
+
 ### Key Behaviors
 
 - **Always capture before and after** when making visual changes — this lets you verify the change had the intended effect
@@ -467,7 +481,7 @@ If `capture` fails:
 | Error | What to do |
 |-------|-----------|
 | `Claude Vision is not running` | Run `claude-vision start` and ask user to select an area |
-| `No area selected` | Run `claude-vision wait` or ask user to click Select Area on the toolbar |
+| `No area selected` | Run `claude-vision wait` or ask user to click "Select Area" or "Select Window" on the toolbar |
 | `Screen capture failed — no image returned` | Screen Recording permission not granted — ask user to enable it in System Settings > Privacy & Security > Screen Recording |
 
 ### Example: Full UI Development Session
