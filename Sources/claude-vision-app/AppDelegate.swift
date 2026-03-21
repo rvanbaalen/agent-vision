@@ -10,7 +10,8 @@ private func handleSIGTERM(_: Int32) {
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     var toolbarWindow: ToolbarWindow!
-    var selectionOverlay: SelectionOverlay?  // Stub — replaced in Task 6
+    var selectionOverlay: SelectionOverlay?
+    var windowSelectionOverlay: WindowSelectionOverlay?
     var borderWindow: BorderWindow?          // Stub — replaced in Task 7
     var actionWatcher: ActionWatcher?
     var feedbackWindow: ActionFeedbackWindow?
@@ -44,6 +45,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self,
             selector: #selector(areaWasSelected(_:)),
             name: .areaSelected,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(beginWindowSelection),
+            name: .beginWindowSelection,
             object: nil
         )
         NotificationCenter.default.addObserver(
@@ -92,11 +99,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         selectionOverlay?.beginSelection()
     }
 
+    @objc func beginWindowSelection() {
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        windowSelectionOverlay = WindowSelectionOverlay(screen: screen)
+        windowSelectionOverlay?.beginSelection()
+    }
+
     @objc func areaWasSelected(_ notification: Notification) {
         guard let area = notification.object as? CaptureArea else { return }
 
         selectionOverlay?.endSelection()
         selectionOverlay = nil
+        windowSelectionOverlay?.endSelection()
+        windowSelectionOverlay = nil
 
         // Update state file with area
         let state = AppState(pid: ProcessInfo.processInfo.processIdentifier, area: area)
@@ -119,6 +134,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func selectionWasCancelled() {
         selectionOverlay?.endSelection()
         selectionOverlay = nil
+        windowSelectionOverlay?.endSelection()
+        windowSelectionOverlay = nil
         toolbarWindow.showToolbar()
     }
 
