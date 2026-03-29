@@ -10,26 +10,55 @@ struct AgentVision: ParsableCommand {
         abstract: "Give AI agents eyes on your screen",
         subcommands: [Start.self, Wait.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self]
     )
+
+    @Flag(name: .long, help: .hidden)
+    var gui: Bool = false
+
+    @Option(name: .long, help: .hidden)
+    var session: String?
+
+    mutating func run() throws {
+        if gui {
+            guard let sid = session else {
+                fputs("Usage: agent-vision --gui --session <uuid>\n", stderr)
+                throw ExitCode.failure
+            }
+            startGUI(sessionID: sid)
+            // startGUI never returns — it calls NSApp.run()
+        }
+        // If no subcommand and no --gui, show help
+        throw CleanExit.helpRequest()
+    }
 }
 
 struct Start: ParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Launch the toolbar GUI and create a new session")
 
     func run() throws {
-        // Clean up stale sessions
         Config.cleanStaleSessions()
 
-        // Generate session UUID
         let sessionID = UUID().uuidString.lowercased()
         let sessionDir = Config.sessionDirectory(for: sessionID)
 
-        // Write initial state
         let state = AppState(pid: ProcessInfo.processInfo.processIdentifier, area: nil)
         try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: sessionDir)
 
-        // GUI launch — replaced in Task 3
+        // Spawn self in GUI mode as a background process
+        var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        var size = UInt32(MAXPATHLEN)
+        guard _NSGetExecutablePath(&pathBuffer, &size) == 0 else {
+            throw ValidationError("Cannot determine executable path.")
+        }
+        let selfPath = String(cString: pathBuffer)
+        let selfURL = URL(fileURLWithPath: selfPath).resolvingSymlinksInPath()
 
-        // Print session ID to stdout — the calling agent captures this
+        let process = Process()
+        process.executableURL = selfURL
+        process.arguments = ["--gui", "--session", sessionID]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+
         print(sessionID)
     }
 }
