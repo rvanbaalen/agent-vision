@@ -1,5 +1,5 @@
 import AppKit
-import ClaudeVisionShared
+import AgentVisionShared
 
 class ActionFeedbackWindow: NSWindow {
     private var feedbackView: FeedbackView!

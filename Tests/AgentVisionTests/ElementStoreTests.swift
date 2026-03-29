@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import ClaudeVisionShared
+@testable import AgentVisionShared
 
 @Suite struct ElementStoreTests {
 

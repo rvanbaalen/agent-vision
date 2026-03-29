@@ -1,5 +1,5 @@
 import AppKit
-import ClaudeVisionShared
+import AgentVisionShared
 
 class BorderWindow: NSWindow {
     init(area: CaptureArea) {

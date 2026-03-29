@@ -2,29 +2,25 @@
 import PackageDescription
 
 let package = Package(
-    name: "claude-vision",
-    platforms: [.macOS(.v13)],
+    name: "agent-vision",
+    platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
     ],
     targets: [
         .executableTarget(
-            name: "claude-vision",
+            name: "agent-vision",
             dependencies: [
-                "ClaudeVisionShared",
+                "AgentVisionShared",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ]
         ),
-        .executableTarget(
-            name: "claude-vision-app",
-            dependencies: ["ClaudeVisionShared"]
-        ),
         .target(
-            name: "ClaudeVisionShared"
+            name: "AgentVisionShared"
         ),
         .testTarget(
-            name: "ClaudeVisionTests",
-            dependencies: ["ClaudeVisionShared"]
+            name: "AgentVisionTests",
+            dependencies: ["AgentVisionShared"]
         ),
     ]
 )

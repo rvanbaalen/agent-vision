@@ -18,9 +18,12 @@ public enum ActionRequest: Codable, Sendable {
     case key(key: String)
     case scroll(delta: Delta, at: Point)
     case drag(from: Point, to: Point)
+    case discoverElements
+    case clickElement(index: Int)
+    case typeElement(text: String, index: Int)
 
     enum CodingKeys: String, CodingKey {
-        case action, at, text, key, delta, from, to, timestamp
+        case action, at, text, key, delta, from, to, timestamp, index
     }
 
     public init(from decoder: Decoder) throws {
@@ -42,6 +45,15 @@ public enum ActionRequest: Codable, Sendable {
             self = .drag(
                 from: try container.decode(Point.self, forKey: .from),
                 to: try container.decode(Point.self, forKey: .to)
+            )
+        case "discoverElements":
+            self = .discoverElements
+        case "clickElement":
+            self = .clickElement(index: try container.decode(Int.self, forKey: .index))
+        case "typeElement":
+            self = .typeElement(
+                text: try container.decode(String.self, forKey: .text),
+                index: try container.decode(Int.self, forKey: .index)
             )
         default:
             throw DecodingError.dataCorruptedError(forKey: .action, in: container, debugDescription: "Unknown action: \(action)")
@@ -70,6 +82,27 @@ public enum ActionRequest: Codable, Sendable {
             try container.encode("drag", forKey: .action)
             try container.encode(from, forKey: .from)
             try container.encode(to, forKey: .to)
+        case .discoverElements:
+            try container.encode("discoverElements", forKey: .action)
+        case .clickElement(let index):
+            try container.encode("clickElement", forKey: .action)
+            try container.encode(index, forKey: .index)
+        case .typeElement(let text, let index):
+            try container.encode("typeElement", forKey: .action)
+            try container.encode(text, forKey: .text)
+            try container.encode(index, forKey: .index)
+        }
+    }
+
+    public var isDiscoverElements: Bool {
+        if case .discoverElements = self { return true }
+        return false
+    }
+
+    public var isElementBased: Bool {
+        switch self {
+        case .clickElement, .typeElement, .discoverElements: return true
+        default: return false
         }
     }
 
@@ -84,7 +117,7 @@ public enum ActionRequest: Codable, Sendable {
         case .click(let pt): return check(pt, label: "")
         case .scroll(_, let pt): return check(pt, label: "")
         case .drag(let from, let to): return check(from, label: "'from' ") ?? check(to, label: "'to' ")
-        case .type, .key: return nil
+        case .type, .key, .discoverElements, .clickElement, .typeElement: return nil
         }
     }
 
@@ -94,7 +127,7 @@ public enum ActionRequest: Codable, Sendable {
         case .click(let pt): return .click(at: abs(pt))
         case .scroll(let delta, let pt): return .scroll(delta: delta, at: abs(pt))
         case .drag(let from, let to): return .drag(from: abs(from), to: abs(to))
-        case .type, .key: return self
+        case .type, .key, .discoverElements, .clickElement, .typeElement: return self
         }
     }
 }

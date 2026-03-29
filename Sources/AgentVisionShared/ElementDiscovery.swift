@@ -5,9 +5,12 @@ import ApplicationServices
 public enum ElementDiscovery {
 
     /// Maximum depth for AX tree traversal.
-    private static let maxDepth = 10
+    private static let defaultMaxDepth = 15
     /// Maximum total elements to collect.
     private static let maxElements = 500
+
+    /// Configurable depth — can be increased for deep web content.
+    nonisolated(unsafe) public static var maxDepth = 15
 
     /// Actionable roles get priority in element ordering.
     private static let actionableRoles: Set<String> = [
@@ -58,22 +61,72 @@ public enum ElementDiscovery {
         guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return nil
         }
+        // Our own process ID — skip all windows belonging to Claude Vision
+        let ownPID = ProcessInfo.processInfo.processIdentifier
         for window in windowList {
             guard let boundsDict = window[kCGWindowBounds as String] as? [String: Any],
                   let pid = window[kCGWindowOwnerPID as String] as? pid_t,
+                  let layer = window[kCGWindowLayer as String] as? Int,
                   let wx = boundsDict["X"] as? CGFloat,
                   let wy = boundsDict["Y"] as? CGFloat,
                   let ww = boundsDict["Width"] as? CGFloat,
                   let wh = boundsDict["Height"] as? CGFloat else { continue }
 
+            // Only consider normal-level windows (layer 0).
+            // This skips floating panels, overlays, toolbars, etc.
+            guard layer == 0 else { continue }
+            // Skip our own windows
+            guard pid != ownPID else { continue }
+
             let windowRect = CGRect(x: wx, y: wy, width: ww, height: wh)
             if windowRect.contains(areaCenter) {
-                if let name = window[kCGWindowOwnerName as String] as? String,
-                   name == "claude-vision-app" { continue }
                 return pid
             }
         }
         return nil
+    }
+
+    // MARK: - Diagnostics
+
+    /// Dump the AX tree structure for debugging. Returns a string representation.
+    public static func dumpTree(pid: pid_t, maxDepth: Int = 8) -> String {
+        let app = AXUIElementCreateApplication(pid)
+        var lines: [String] = []
+        dumpElement(app, depth: 0, maxDepth: maxDepth, lines: &lines)
+        return lines.joined(separator: "\n")
+    }
+
+    private static func dumpElement(_ element: AXUIElement, depth: Int, maxDepth: Int, lines: inout [String]) {
+        guard depth < maxDepth, lines.count < 200 else { return }
+        let indent = String(repeating: "  ", count: depth)
+
+        var roleRef: CFTypeRef?
+        let roleResult = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef)
+        let role = (roleResult == .success) ? (roleRef as? String ?? "?") : "ERR(\(roleResult.rawValue))"
+
+        let label = getLabel(of: element) ?? ""
+        let bounds = getBounds(of: element)
+        let boundsStr = bounds.map { "(\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))x\(Int($0.height)))" } ?? "no-bounds"
+
+        var childCount = 0
+        var childrenRef: CFTypeRef?
+        let childResult = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef)
+        if childResult == .success, let children = childrenRef as? [AXUIElement] {
+            childCount = children.count
+        }
+
+        lines.append("\(indent)[\(depth)] \(role) children=\(childCount) \(boundsStr) \(label.prefix(50))")
+
+        if childResult == .success, let children = childrenRef as? [AXUIElement] {
+            for child in children.prefix(20) {
+                dumpElement(child, depth: depth + 1, maxDepth: maxDepth, lines: &lines)
+            }
+            if children.count > 20 {
+                lines.append("\(indent)  ... +\(children.count - 20) more children")
+            }
+        } else if childResult != .success {
+            lines.append("\(indent)  children error: \(childResult.rawValue)")
+        }
     }
 
     // MARK: - AX Tree Walking
@@ -95,8 +148,16 @@ public enum ElementDiscovery {
             return
         }
 
+        let areaRect = CGRect(x: area.x, y: area.y, width: area.width, height: area.height)
+
         if let bounds = getBounds(of: element) {
-            let areaRect = CGRect(x: area.x, y: area.y, width: area.width, height: area.height)
+            // Spatial pruning: skip entire subtree if element is completely outside
+            // the capture area. This prevents traversing thousands of off-screen
+            // elements (e.g., mail client message lists).
+            if bounds.width > 0 && bounds.height > 0 && !areaRect.intersects(bounds) {
+                return
+            }
+
             let center = CGPoint(x: bounds.midX, y: bounds.midY)
             if areaRect.contains(center) && bounds.width > 0 && bounds.height > 0 {
                 let label = getLabel(of: element)
@@ -131,9 +192,12 @@ public enum ElementDiscovery {
 
         var position = CGPoint.zero
         var size = CGSize.zero
+        // Verify CFTypeRef is actually an AXValue before force-casting
         let posVal = posRef as! AXValue
         let sizeVal = sizeRef as! AXValue
-        guard AXValueGetValue(posVal, .cgPoint, &position),
+        guard CFGetTypeID(posRef) == AXValueGetTypeID(),
+              CFGetTypeID(sizeRef) == AXValueGetTypeID(),
+              AXValueGetValue(posVal, .cgPoint, &position),
               AXValueGetValue(sizeVal, .cgSize, &size) else {
             return nil
         }

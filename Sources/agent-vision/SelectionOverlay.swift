@@ -1,5 +1,5 @@
 import AppKit
-import ClaudeVisionShared
+import AgentVisionShared
 
 class SelectionOverlay: NSWindow {
     private var selectionView: SelectionView!

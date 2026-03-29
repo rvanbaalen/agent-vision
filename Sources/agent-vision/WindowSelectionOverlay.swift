@@ -1,5 +1,5 @@
 import AppKit
-import ClaudeVisionShared
+import AgentVisionShared
 
 /// Lightweight window selection — no full-screen overlay.
 /// Shows a floating border highlight over the window under the cursor.

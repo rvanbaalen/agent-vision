@@ -31,9 +31,9 @@ public enum ElementAction {
     private static let boundsTolerance: Double = 2.0
 
     /// Maximum depth for AX tree traversal (matches ElementDiscovery).
-    private static let maxDepth = 10
+    private static let maxDepth = 25
     /// Maximum total elements to visit (matches ElementDiscovery).
-    private static let maxElements = 500
+    private static let maxElements = 1000
 
     /// Press (click) an element by re-finding it in the AX tree. Focus-free — does not move cursor.
     public static func press(element: DiscoveredElement, area: CaptureArea) throws {
@@ -146,8 +146,15 @@ public enum ElementAction {
 
         var position = CGPoint.zero
         var size = CGSize.zero
-        guard AXValueGetValue(posRef as! AXValue, .cgPoint, &position),
-              AXValueGetValue(sizeRef as! AXValue, .cgSize, &size) else {
+        // Verify CFTypeRef is actually an AXValue before force-casting
+        guard CFGetTypeID(posRef!) == AXValueGetTypeID(),
+              CFGetTypeID(sizeRef!) == AXValueGetTypeID() else {
+            return nil
+        }
+        let posVal = posRef as! AXValue
+        let sizeVal = sizeRef as! AXValue
+        guard AXValueGetValue(posVal, .cgPoint, &position),
+              AXValueGetValue(sizeVal, .cgSize, &size) else {
             return nil
         }
 

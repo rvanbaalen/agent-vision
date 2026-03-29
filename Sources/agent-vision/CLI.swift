@@ -1,7 +1,7 @@
 @preconcurrency import Foundation
 import ArgumentParser
 import CoreGraphics
-import ClaudeVisionShared
+import AgentVisionShared
 
 @main
 struct ClaudeVision: ParsableCommand {
@@ -237,7 +237,7 @@ func requireArea(session sessionID: String) throws -> CaptureArea {
 }
 
 /// Send an action to the GUI and wait for the result.
-func sendAction(_ action: ActionRequest, area: CaptureArea, session sessionID: String) throws {
+func sendAction(_ action: ActionRequest, area: CaptureArea, session sessionID: String, quiet: Bool = false) throws {
     if let error = action.boundsError(for: area) {
         fputs("\(error)\n", stderr)
         throw ExitCode.failure
@@ -252,13 +252,23 @@ func sendAction(_ action: ActionRequest, area: CaptureArea, session sessionID: S
 
     try ActionFile.write(action, to: actionPath, createDirectory: sessionDir)
 
-    let deadline = Date().addingTimeInterval(5)
+    // Element discovery and element-based actions need longer timeouts
+    // (AX tree re-walk on complex apps like Mail can take 5-10s)
+    let timeout: TimeInterval
+    if action.isDiscoverElements {
+        timeout = 30
+    } else if action.isElementBased {
+        timeout = 15
+    } else {
+        timeout = 10
+    }
+    let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
         if FileManager.default.fileExists(atPath: resultPath.path) {
             let result = try ActionFile.readResult(from: resultPath)
             ActionFile.delete(at: resultPath)
             if result.success {
-                print(result.message)
+                if !quiet { print(result.message) }
             } else {
                 fputs("\(result.message)\n", stderr)
                 throw ExitCode.failure
@@ -336,14 +346,7 @@ extension Control {
                     fputs("Specify either --at or --element, not both.\n", stderr)
                     throw ExitCode.failure
                 }
-                let el = try resolveElement(index: elementIndex, area: area, session: session)
-                do {
-                    try ElementAction.press(element: el, area: area)
-                    print("Clicked \(el.displayLabel) (focus-free)")
-                } catch {
-                    fputs("\(error)\n", stderr)
-                    throw ExitCode.failure
-                }
+                try sendAction(.clickElement(index: elementIndex), area: area, session: session)
             } else if let atStr = at {
                 let point = try parsePoint(atStr)
                 try sendAction(.click(at: point), area: area, session: session)
@@ -373,14 +376,7 @@ extension Control {
             let area = try requireArea(session: session)
 
             if let elementIndex = element {
-                let el = try resolveElement(index: elementIndex, area: area, session: session)
-                do {
-                    try ElementAction.setText(text, element: el, area: area)
-                    print("Typed into \(el.displayLabel) (focus-free)")
-                } catch {
-                    fputs("\(error)\n", stderr)
-                    throw ExitCode.failure
-                }
+                try sendAction(.typeElement(text: text, index: elementIndex), area: area, session: session)
             } else {
                 try sendAction(.type(text: text), area: area, session: session)
             }
@@ -471,31 +467,15 @@ struct Elements: ParsableCommand {
     func run() throws {
         let area = try requireArea(session: session)
 
-        let axElements = ElementDiscovery.discover(area: area)
+        // Send discovery request to GUI (which has AX permissions)
+        try sendAction(.discoverElements, area: area, session: session, quiet: true)
 
-        let rect = CGRect(x: area.x, y: area.y, width: area.width, height: area.height)
-        var ocrElements: [DiscoveredElement] = []
-        if let image = CGWindowListCreateImage(rect, .optionOnScreenOnly, kCGNullWindowID, .bestResolution) {
-            ocrElements = TextDiscovery.discover(
-                image: image,
-                areaWidth: area.width,
-                areaHeight: area.height,
-                existingElements: axElements,
-                startIndex: axElements.count + 1
-            )
-        }
-
-        let allElements = axElements + ocrElements
-
-        if allElements.isEmpty {
-            fputs("Warning: No elements found. Check Accessibility permissions or try a different area.\n", stderr)
-        }
-        let result = ElementScanResult(area: area, elements: allElements)
-
-        // Write cache to session directory
-        let sessionDir = Config.sessionDirectory(for: session)
+        // Read results written by GUI
         let elementsPath = Config.elementsFilePath(for: session)
-        try ElementStore.write(result, to: elementsPath, createDirectory: sessionDir)
+        guard let result = try ElementStore.read(from: elementsPath) else {
+            fputs("Error: Element discovery produced no results.\n", stderr)
+            throw ExitCode.failure
+        }
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -510,7 +490,7 @@ struct Elements: ParsableCommand {
                 outputPath = FileManager.default.temporaryDirectory
                     .appendingPathComponent("claude-vision-elements-\(Int(Date().timeIntervalSince1970)).png").path
             }
-            try ScreenCapture.captureWithElements(area: area, elements: allElements, to: URL(fileURLWithPath: outputPath))
+            try ScreenCapture.captureWithElements(area: area, elements: result.elements, to: URL(fileURLWithPath: outputPath))
             fputs("Annotated screenshot: \(outputPath)\n", stderr)
         }
     }

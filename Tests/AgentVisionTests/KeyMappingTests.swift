@@ -1,5 +1,5 @@
 import XCTest
-@testable import ClaudeVisionShared
+@testable import AgentVisionShared
 
 final class KeyMappingTests: XCTestCase {
     func testParseSimpleKey() throws {

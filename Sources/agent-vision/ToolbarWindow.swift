@@ -1,5 +1,5 @@
 import AppKit
-import ClaudeVisionShared
+import AgentVisionShared
 
 class ToolbarWindow: NSPanel {
     private var selectButton: NSButton!
