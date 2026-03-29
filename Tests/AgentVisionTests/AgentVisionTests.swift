@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import AgentVisionShared
 
-@Suite struct ClaudeVisionTests {
+@Suite struct AgentVisionTests {
     @Test func testConfigPaths() {
         // Verify state directory is under home directory
         let home = FileManager.default.homeDirectoryForCurrentUser

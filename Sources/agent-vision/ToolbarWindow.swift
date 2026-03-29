@@ -48,7 +48,7 @@ class ToolbarWindow: NSPanel {
         visualEffect.layer?.masksToBounds = true
 
         // Title label
-        let titleLabel = NSTextField(labelWithString: "Claude Vision")
+        let titleLabel = NSTextField(labelWithString: "Agent Vision")
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.textColor = .labelColor

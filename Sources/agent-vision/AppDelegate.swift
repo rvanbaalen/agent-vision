@@ -23,7 +23,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var feedbackWindow: ActionFeedbackWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSLog("[claude-vision] applicationDidFinishLaunching — session=\(sessionID)")
+        NSLog("[agent-vision] applicationDidFinishLaunching — session=\(sessionID)")
         globalSessionID = sessionID
 
         // Write PID to state file for this session
@@ -31,9 +31,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let sessionDir = Config.sessionDirectory(for: sessionID)
         do {
             try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: sessionDir)
-            NSLog("[claude-vision] State file written to \(Config.stateFilePath(for: sessionID).path)")
+            NSLog("[agent-vision] State file written to \(Config.stateFilePath(for: sessionID).path)")
         } catch {
-            NSLog("[claude-vision] FATAL: Failed to write state file: \(error)")
+            NSLog("[agent-vision] FATAL: Failed to write state file: \(error)")
             NSApp.terminate(nil)
             return
         }
@@ -42,7 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         signal(SIGTERM, handleSIGTERM)
 
         // Create and show toolbar
-        NSLog("[claude-vision] Creating toolbar window")
+        NSLog("[agent-vision] Creating toolbar window")
         toolbarWindow = ToolbarWindow()
         toolbarWindow.showToolbar()
 
@@ -76,15 +76,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         actionWatcher?.start { [weak self] action, area in
             self?.showActionFeedback(action: action, area: area)
         }
-        NSLog("[claude-vision] App launch complete, action watcher started")
+        NSLog("[agent-vision] App launch complete, action watcher started")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        NSLog("[claude-vision] applicationWillTerminate — cleaning up session=\(sessionID)")
+        NSLog("[agent-vision] applicationWillTerminate — cleaning up session=\(sessionID)")
         actionWatcher?.stop()
         // Clean up entire session directory
         try? FileManager.default.removeItem(at: Config.sessionDirectory(for: sessionID))
-        NSLog("[claude-vision] Cleanup complete")
+        NSLog("[agent-vision] Cleanup complete")
     }
 
     func showActionFeedback(action: ActionRequest, area: CaptureArea) {
@@ -108,24 +108,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func beginSelection() {
-        NSLog("[claude-vision] beginSelection — area drag mode")
+        NSLog("[agent-vision] beginSelection — area drag mode")
         let screen = NSScreen.main ?? NSScreen.screens[0]
         selectionOverlay = SelectionOverlay(screen: screen)
         selectionOverlay?.beginSelection()
     }
 
     @objc func beginWindowSelection() {
-        NSLog("[claude-vision] beginWindowSelection — window pick mode")
+        NSLog("[agent-vision] beginWindowSelection — window pick mode")
         windowSelectionController = WindowSelectionController()
         windowSelectionController?.begin()
     }
 
     @objc func areaWasSelected(_ notification: Notification) {
         guard let area = notification.object as? CaptureArea else {
-            NSLog("[claude-vision] areaWasSelected — notification had no CaptureArea!")
+            NSLog("[agent-vision] areaWasSelected — notification had no CaptureArea!")
             return
         }
-        NSLog("[claude-vision] areaWasSelected — \(Int(area.width))x\(Int(area.height)) at (\(Int(area.x)),\(Int(area.y)))")
+        NSLog("[agent-vision] areaWasSelected — \(Int(area.width))x\(Int(area.height)) at (\(Int(area.x)),\(Int(area.y)))")
 
         selectionOverlay?.endSelection()
         selectionOverlay = nil
@@ -137,7 +137,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         do {
             try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: Config.sessionDirectory(for: sessionID))
         } catch {
-            NSLog("[claude-vision] ERROR: Failed to write area to state: \(error)")
+            NSLog("[agent-vision] ERROR: Failed to write area to state: \(error)")
         }
 
         // Show toolbar again with dimensions
@@ -151,7 +151,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func selectionWasCancelled() {
-        NSLog("[claude-vision] selectionWasCancelled")
+        NSLog("[agent-vision] selectionWasCancelled")
         selectionOverlay?.endSelection()
         selectionOverlay = nil
         windowSelectionController?.end()

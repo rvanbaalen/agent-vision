@@ -73,9 +73,9 @@ class BorderView: NSView {
         blue.setStroke()
         path.stroke()
 
-        // "Claude Vision" label
+        // "Agent Vision" label
         let labelString = NSAttributedString(
-            string: "Claude Vision",
+            string: "Agent Vision",
             attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .medium),
                 .foregroundColor: blue,

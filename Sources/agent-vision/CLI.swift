@@ -4,10 +4,10 @@ import CoreGraphics
 import AgentVisionShared
 
 @main
-struct ClaudeVision: ParsableCommand {
+struct AgentVision: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "claude-vision",
-        abstract: "Screen region capture tool for Claude Code",
+        commandName: "agent-vision",
+        abstract: "Give AI agents eyes on your screen",
         subcommands: [Start.self, Wait.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self]
     )
 }
@@ -27,38 +27,9 @@ struct Start: ParsableCommand {
         let state = AppState(pid: ProcessInfo.processInfo.processIdentifier, area: nil)
         try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: sessionDir)
 
-        // Launch GUI with session ID
-        let appBundlePath = "/Applications/Claude Vision.app"
-        if FileManager.default.fileExists(atPath: appBundlePath) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            process.arguments = ["-n", "-a", appBundlePath, "--args", "--session", sessionID]
-            try process.run()
-            process.waitUntilExit()
-        } else {
-            // Dev fallback: find binary next to CLI
-            var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-            var size = UInt32(MAXPATHLEN)
-            guard _NSGetExecutablePath(&pathBuffer, &size) == 0 else {
-                throw ValidationError("Cannot determine executable path.")
-            }
-            let cliPath = String(cString: pathBuffer)
-            let cliURL = URL(fileURLWithPath: cliPath).resolvingSymlinksInPath()
-            let appURL = cliURL.deletingLastPathComponent().appendingPathComponent("claude-vision-app")
+        // GUI launch — replaced in Task 3
 
-            guard FileManager.default.fileExists(atPath: appURL.path) else {
-                throw ValidationError("Cannot find claude-vision-app at \(appURL.path). Install with './scripts/install.sh' or build with 'swift build'.")
-            }
-
-            let process = Process()
-            process.executableURL = appURL
-            process.arguments = ["--session", sessionID]
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-        }
-
-        // Print session ID to stdout — Claude captures this
+        // Print session ID to stdout — the calling agent captures this
         print(sessionID)
     }
 }
@@ -101,7 +72,7 @@ struct Wait: ParsableCommand {
         while Date() < deadline {
             guard let state = try StateFile.read(from: statePath),
                   StateFile.isProcessRunning(pid: state.pid) else {
-                fputs("Session is not running. Use 'claude-vision start' first.\n", stderr)
+                fputs("Session is not running. Use 'agent-vision start' first.\n", stderr)
                 throw ExitCode.failure
             }
 
@@ -158,7 +129,7 @@ struct Calibrate: ParsableCommand {
             outputPath = p
         } else {
             outputPath = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claude-vision-calibrate-\(Int(Date().timeIntervalSince1970)).png").path
+                .appendingPathComponent("agent-vision-calibrate-\(Int(Date().timeIntervalSince1970)).png").path
         }
 
         try ScreenCapture.captureWithCalibration(area: area, to: URL(fileURLWithPath: outputPath))
@@ -167,7 +138,7 @@ struct Calibrate: ParsableCommand {
         let h = Int(area.height)
         print(outputPath)
         print("Crosshairs at: (\(w/4),\(h/4)) (\(w*3/4),\(h/4)) (\(w/4),\(h*3/4)) (\(w*3/4),\(h*3/4))")
-        print("Use these reference points to estimate click coordinates for `claude-vision control click --at X,Y`")
+        print("Use these reference points to estimate click coordinates for `agent-vision control click --at X,Y`")
     }
 }
 
@@ -194,7 +165,7 @@ struct Preview: ParsableCommand {
             outputPath = p
         } else {
             outputPath = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claude-vision-preview-\(Int(Date().timeIntervalSince1970)).png").path
+                .appendingPathComponent("agent-vision-preview-\(Int(Date().timeIntervalSince1970)).png").path
         }
 
         try ScreenCapture.captureWithPreview(
@@ -215,7 +186,7 @@ func validateSession(_ sessionID: String) throws {
         throw ExitCode.failure
     }
     guard FileManager.default.fileExists(atPath: Config.sessionDirectory(for: sessionID).path) else {
-        fputs("Session not found. Run 'claude-vision start' first.\n", stderr)
+        fputs("Session not found. Run 'agent-vision start' first.\n", stderr)
         throw ExitCode.failure
     }
 }
@@ -226,7 +197,7 @@ func requireArea(session sessionID: String) throws -> CaptureArea {
     let statePath = Config.stateFilePath(for: sessionID)
     guard let state = try StateFile.read(from: statePath),
           StateFile.isProcessRunning(pid: state.pid) else {
-        fputs("Session is not running. Use 'claude-vision start' first.\n", stderr)
+        fputs("Session is not running. Use 'agent-vision start' first.\n", stderr)
         throw ExitCode.failure
     }
     guard let area = state.area else {
@@ -286,11 +257,11 @@ func sendAction(_ action: ActionRequest, area: CaptureArea, session sessionID: S
 func resolveElement(index: Int, area: CaptureArea, session sessionID: String) throws -> DiscoveredElement {
     let elementsPath = Config.elementsFilePath(for: sessionID)
     guard let scanResult = try ElementStore.read(from: elementsPath) else {
-        fputs("No element scan found. Run 'claude-vision elements' first.\n", stderr)
+        fputs("No element scan found. Run 'agent-vision elements' first.\n", stderr)
         throw ExitCode.failure
     }
     if ElementStore.isStale(scanResult, currentArea: area) {
-        fputs("Stale scan: capture area changed since last scan. Run 'claude-vision elements' again.\n", stderr)
+        fputs("Stale scan: capture area changed since last scan. Run 'agent-vision elements' again.\n", stderr)
         throw ExitCode.failure
     }
     guard let el = ElementStore.lookup(index: index, in: scanResult) else {
@@ -488,7 +459,7 @@ struct Elements: ParsableCommand {
                 outputPath = p
             } else {
                 outputPath = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("claude-vision-elements-\(Int(Date().timeIntervalSince1970)).png").path
+                    .appendingPathComponent("agent-vision-elements-\(Int(Date().timeIntervalSince1970)).png").path
             }
             try ScreenCapture.captureWithElements(area: area, elements: result.elements, to: URL(fileURLWithPath: outputPath))
             fputs("Annotated screenshot: \(outputPath)\n", stderr)

@@ -14,7 +14,7 @@ public enum ElementActionError: Error, CustomStringConvertible {
         case .windowNotFound:
             return "No window found under the selected area."
         case .elementNotFound(let index):
-            return "Element \(index) not found in current UI. Run 'claude-vision elements' again."
+            return "Element \(index) not found in current UI. Run 'agent-vision elements' again."
         case .actionFailed(let index):
             return "Failed to perform action on element \(index). The element may not be actionable."
         case .notTextField(let index, let role):

@@ -61,7 +61,7 @@ public enum ElementDiscovery {
         guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
             return nil
         }
-        // Our own process ID — skip all windows belonging to Claude Vision
+        // Our own process ID — skip all windows belonging to Agent Vision
         let ownPID = ProcessInfo.processInfo.processIdentifier
         for window in windowList {
             guard let boundsDict = window[kCGWindowBounds as String] as? [String: Any],

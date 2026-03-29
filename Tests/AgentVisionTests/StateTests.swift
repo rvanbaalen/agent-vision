@@ -7,7 +7,7 @@ final class StateTests: XCTestCase {
 
     override func setUp() {
         testDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("claude-vision-test-\(UUID().uuidString)")
+            .appendingPathComponent("agent-vision-test-\(UUID().uuidString)")
         testFile = testDir.appendingPathComponent("state.json")
     }
 

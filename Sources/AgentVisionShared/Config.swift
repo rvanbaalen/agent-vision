@@ -2,7 +2,7 @@ import Foundation
 
 public enum Config {
     public static let stateDirectory = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".claude-vision")
+        .appendingPathComponent(".agent-vision")
     public static let sessionsDirectory = stateDirectory.appendingPathComponent("sessions")
 
     // MARK: - Session Paths

@@ -262,7 +262,7 @@ public enum ScreenCapture {
     }
 
     public static func captureToTemp(area: CaptureArea) throws -> String {
-        let filename = "claude-vision-capture-\(Int(Date().timeIntervalSince1970)).png"
+        let filename = "agent-vision-capture-\(Int(Date().timeIntervalSince1970)).png"
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
         try capture(area: area, to: url)
         return url.path
