@@ -35,6 +35,9 @@ struct Start: ParsableCommand {
     static let configuration = CommandConfiguration(abstract: "Launch the toolbar GUI and create a new session")
 
     func run() throws {
+        // Non-blocking update check (2s timeout, silent on failure)
+        checkForUpdate(owner: "OWNER", repo: "agent-vision")
+
         Config.cleanStaleSessions()
 
         let sessionID = UUID().uuidString.lowercased()
