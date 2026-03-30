@@ -1,6 +1,6 @@
 # Agent Vision
 
-A macOS utility that gives AI agents eyes on your screen. Mark a region on your screen and any AI coding agent can take screenshots of it on demand — enabling visual feedback loops for UI development.
+A macOS utility that gives AI agents eyes — and optionally hands — on your screen. Mark a region and any AI coding agent can take screenshots on demand or control the mouse and keyboard within that area, enabling visual feedback loops for UI development.
 
 ## Install
 
