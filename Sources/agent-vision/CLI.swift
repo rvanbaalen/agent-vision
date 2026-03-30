@@ -36,7 +36,7 @@ struct Start: ParsableCommand {
 
     func run() throws {
         // Non-blocking update check (2s timeout, silent on failure)
-        checkForUpdate(owner: "OWNER", repo: "agent-vision")
+        checkForUpdate(owner: "rvanbaalen", repo: "agent-vision")
 
         Config.cleanStaleSessions()
 

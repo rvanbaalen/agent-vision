@@ -5,7 +5,7 @@ A macOS utility that gives AI agents eyes on your screen. Mark a region on your 
 ## Install
 
 ```bash
-brew tap OWNER/agent-vision
+brew tap rvanbaalen/agent-vision
 brew install agent-vision
 ```
 
