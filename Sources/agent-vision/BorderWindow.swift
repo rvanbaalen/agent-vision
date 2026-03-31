@@ -10,12 +10,28 @@ class BorderWindow: NSWindow {
 
         let padding: CGFloat = 4
         let labelHeight: CGFloat = 18
-        let frame = NSRect(
-            x: CGFloat(area.x) - padding,
-            y: screenHeight - CGFloat(area.y) - CGFloat(area.height) - padding,
-            width: CGFloat(area.width) + padding * 2,
-            height: CGFloat(area.height) + padding * 2 + labelHeight
-        )
+
+        // Check if label above the border would extend beyond the screen top
+        let topEdgeInAppKit = screenHeight - CGFloat(area.y) + padding + labelHeight
+        let labelOnTop = topEdgeInAppKit <= screenHeight
+
+        let frame: NSRect
+        if labelOnTop {
+            frame = NSRect(
+                x: CGFloat(area.x) - padding,
+                y: screenHeight - CGFloat(area.y) - CGFloat(area.height) - padding,
+                width: CGFloat(area.width) + padding * 2,
+                height: CGFloat(area.height) + padding * 2 + labelHeight
+            )
+        } else {
+            // Label goes below the border
+            frame = NSRect(
+                x: CGFloat(area.x) - padding,
+                y: screenHeight - CGFloat(area.y) - CGFloat(area.height) - padding - labelHeight,
+                width: CGFloat(area.width) + padding * 2,
+                height: CGFloat(area.height) + padding * 2 + labelHeight
+            )
+        }
 
         super.init(
             contentRect: frame,
@@ -35,6 +51,7 @@ class BorderWindow: NSWindow {
             frame: NSRect(origin: .zero, size: frame.size),
             padding: padding,
             labelHeight: labelHeight,
+            labelOnTop: labelOnTop,
             color: NSColor(red: sessionColor.red, green: sessionColor.green, blue: sessionColor.blue, alpha: 0.7),
             label: sessionLabel
         )
@@ -53,12 +70,14 @@ class BorderWindow: NSWindow {
 class BorderView: NSView {
     let padding: CGFloat
     let labelHeight: CGFloat
+    let labelOnTop: Bool
     let color: NSColor
     var label: String
 
-    init(frame: NSRect, padding: CGFloat, labelHeight: CGFloat, color: NSColor, label: String) {
+    init(frame: NSRect, padding: CGFloat, labelHeight: CGFloat, labelOnTop: Bool, color: NSColor, label: String) {
         self.padding = padding
         self.labelHeight = labelHeight
+        self.labelOnTop = labelOnTop
         self.color = color
         self.label = label
         super.init(frame: frame)
@@ -69,10 +88,17 @@ class BorderView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
+        let borderY: CGFloat
+        if labelOnTop {
+            borderY = padding
+        } else {
+            borderY = padding + labelHeight
+        }
+
         // Dashed border rectangle
         let borderRect = NSRect(
             x: padding,
-            y: padding,
+            y: borderY,
             width: bounds.width - padding * 2,
             height: bounds.height - padding * 2 - labelHeight
         )
@@ -93,8 +119,14 @@ class BorderView: NSView {
                 .backgroundColor: color.withAlphaComponent(0.15),
             ]
         )
+
         let labelX = bounds.width - padding - labelString.size().width - 4
-        let labelY = bounds.height - padding - labelHeight + 2
+        let labelY: CGFloat
+        if labelOnTop {
+            labelY = bounds.height - padding - labelHeight + 2
+        } else {
+            labelY = padding + 2
+        }
         labelString.draw(at: NSPoint(x: labelX, y: labelY))
     }
 }
