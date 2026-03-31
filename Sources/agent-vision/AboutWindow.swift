@@ -16,12 +16,14 @@ class AboutWindow {
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 320),
-            styleMask: [.titled, .closable],
+            styleMask: [.titled, .closable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
         panel.title = "About Agent Vision"
         panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.hidesOnDeactivate = false
         panel.center()
 
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 320))
@@ -82,8 +84,8 @@ class AboutWindow {
         self.updateLabel = updateStatus
 
         panel.contentView = content
-        panel.makeKeyAndOrderFront(nil)
         self.window = panel
+        panel.orderFrontRegardless()
 
         triggerUpdateCheck()
     }
