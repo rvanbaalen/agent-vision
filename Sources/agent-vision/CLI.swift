@@ -154,7 +154,9 @@ struct ListSessions: ParsableCommand {
             found = true
             if let area = state.area {
                 let owner = area.windowOwner ?? "unknown"
-                print("\(sid)  \(owner)  \(Int(area.width))x\(Int(area.height))")
+                let title = area.windowTitle.flatMap({ $0.isEmpty ? nil : $0 })
+                let description = [owner, title].compactMap({ $0 }).joined(separator: " — ")
+                print("\(sid)  \(description)  \(Int(area.width))x\(Int(area.height))")
             } else {
                 print("\(sid)  awaiting selection")
             }

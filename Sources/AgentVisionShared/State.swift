@@ -9,18 +9,21 @@ public struct CaptureArea: Codable, Sendable {
     public let windowNumber: UInt32?
     /// The name of the application owning the tracked window (e.g. "Terminal", "Safari").
     public let windowOwner: String?
+    /// The title of the tracked window (e.g. "~/Sites/agent-vision", "GitHub - Pull Requests").
+    public let windowTitle: String?
 
-    public init(x: Double, y: Double, width: Double, height: Double, windowNumber: UInt32? = nil, windowOwner: String? = nil) {
+    public init(x: Double, y: Double, width: Double, height: Double, windowNumber: UInt32? = nil, windowOwner: String? = nil, windowTitle: String? = nil) {
         self.x = x
         self.y = y
         self.width = width
         self.height = height
         self.windowNumber = windowNumber
         self.windowOwner = windowOwner
+        self.windowTitle = windowTitle
     }
 
     enum CodingKeys: String, CodingKey {
-        case x, y, width, height, windowNumber, windowOwner
+        case x, y, width, height, windowNumber, windowOwner, windowTitle
     }
 
     public init(from decoder: Decoder) throws {
@@ -31,6 +34,7 @@ public struct CaptureArea: Codable, Sendable {
         height = try container.decode(Double.self, forKey: .height)
         windowNumber = try container.decodeIfPresent(UInt32.self, forKey: .windowNumber)
         windowOwner = try container.decodeIfPresent(String.self, forKey: .windowOwner)
+        windowTitle = try container.decodeIfPresent(String.self, forKey: .windowTitle)
     }
 }
 

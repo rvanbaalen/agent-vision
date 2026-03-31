@@ -17,6 +17,8 @@ class WindowSelectionController {
     private var currentWindowNumber: UInt32?
     /// The owner name of the currently highlighted window.
     private var currentWindowOwner: String?
+    /// The title of the currently highlighted window.
+    private var currentWindowTitle: String?
 
     func begin() {
         // Create the highlight border window — click-through, no background
@@ -76,23 +78,20 @@ class WindowSelectionController {
         let mouseQuartz = CGPoint(x: mouseAppKit.x, y: mainHeight - mouseAppKit.y)
 
         // Find topmost window under cursor
-        var hitRect: CGRect?
-        var hitWindowNumber: UInt32?
-        var hitWindowOwner: String?
+        var hit: WindowInfo?
         for w in getWindowList() {
             if w.frame.contains(mouseQuartz) {
-                hitRect = w.frame
-                hitWindowNumber = w.windowNumber
-                hitWindowOwner = w.name
+                hit = w
                 break
             }
         }
 
-        currentRect = hitRect
-        currentWindowNumber = hitWindowNumber
-        currentWindowOwner = hitWindowOwner
+        currentRect = hit?.frame
+        currentWindowNumber = hit?.windowNumber
+        currentWindowOwner = hit?.ownerName
+        currentWindowTitle = hit?.windowTitle
 
-        if let qRect = hitRect {
+        if let qRect = currentRect {
             // Convert Quartz rect to AppKit screen coords
             let appKitRect = NSRect(
                 x: qRect.origin.x,
@@ -118,7 +117,8 @@ class WindowSelectionController {
             width: Double(rect.width),
             height: Double(rect.height),
             windowNumber: currentWindowNumber,
-            windowOwner: currentWindowOwner
+            windowOwner: currentWindowOwner,
+            windowTitle: currentWindowTitle
         )
         NotificationCenter.default.post(name: .areaSelected, object: area)
     }
@@ -128,13 +128,20 @@ class WindowSelectionController {
         NotificationCenter.default.post(name: .selectionCancelled, object: nil)
     }
 
-    private func getWindowList() -> [(name: String?, frame: CGRect, windowNumber: UInt32)] {
+    struct WindowInfo {
+        let ownerName: String?
+        let windowTitle: String?
+        let frame: CGRect
+        let windowNumber: UInt32
+    }
+
+    private func getWindowList() -> [WindowInfo] {
         guard let list = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
         ) as? [[String: Any]] else { return [] }
 
         let myPID = ProcessInfo.processInfo.processIdentifier
-        var results: [(name: String?, frame: CGRect, windowNumber: UInt32)] = []
+        var results: [WindowInfo] = []
 
         for info in list {
             guard let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
@@ -149,8 +156,12 @@ class WindowSelectionController {
             if pid == myPID { continue }
             if let layer = info[kCGWindowLayer as String] as? Int, layer != 0 { continue }
 
-            let name = info[kCGWindowOwnerName as String] as? String
-            results.append((name: name, frame: CGRect(x: wx, y: wy, width: ww, height: wh), windowNumber: windowNum))
+            results.append(WindowInfo(
+                ownerName: info[kCGWindowOwnerName as String] as? String,
+                windowTitle: info[kCGWindowName as String] as? String,
+                frame: CGRect(x: wx, y: wy, width: ww, height: wh),
+                windowNumber: windowNum
+            ))
         }
         return results
     }
