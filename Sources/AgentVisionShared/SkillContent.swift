@@ -67,6 +67,12 @@ Creates a session and launches the GUI (or connects to an existing one). Blocks 
 **`agent-vision stop --session <uuid>`**
 Stops the session and cleans up state.
 
+**`agent-vision focus --session <uuid> [--timeout N]`**
+Waits for the session window to have keyboard focus. Polls with exponential backoff (0.5s→8s). When focus is detected, waits 5 seconds and checks again to confirm it's stable. Fails after 20 attempts. Use this after a control command fails due to the window being out of focus.
+
+**`agent-vision list`**
+Lists active sessions with window owner, title, and dimensions.
+
 ### Screenshots
 
 **`agent-vision capture --session <uuid> [--output PATH]`**
@@ -138,6 +144,41 @@ sleep 0.5                                                      # 3. Wait for UI 
 agent-vision elements --session <uuid>                        # 4. Re-scan (indices changed)
 agent-vision control click --element 1 --session <uuid>       # 5. Act on NEW scan
 ```
+
+## Window Focus and the `focus` Command
+
+All control commands (click, type, key, scroll, drag) require the session window to have keyboard focus. If it doesn't, the command is refused with an error like:
+```
+Error: Ghostty is not the focused window. Switch focus to it and retry.
+```
+
+When this happens, use `agent-vision focus` to wait until the user switches back:
+```bash
+agent-vision focus --session <uuid>
+```
+This polls with exponential backoff until the window regains keyboard focus, then confirms focus is stable for 5 seconds before returning. If focus isn't regained after 20 attempts, it fails.
+
+**After regaining focus, always capture before continuing.** The user may have changed the UI while the window was out of focus — buttons may have moved, text may have changed, the page may have navigated. Never assume the UI is in the same state as before.
+
+```bash
+# Control command fails — window out of focus
+agent-vision control click --session <uuid> --at 100,100
+# Error: Safari is not the focused window. Switch focus to it and retry.
+
+# Wait for focus to return
+agent-vision focus --session <uuid>
+# Focus confirmed on Safari.
+
+# Capture to see current UI state before continuing
+agent-vision capture --session <uuid> --output /tmp/refocus.png
+# Read the screenshot to understand what's on screen NOW
+
+# Re-scan elements — old indices are likely stale
+agent-vision elements --session <uuid>
+# Now continue with fresh state
+```
+
+Note: `--element N` actions (via Accessibility API) are focus-free and work regardless of which window has focus. Prefer `--element` over `--at` whenever possible.
 
 ## Element Targeting Strategy
 
