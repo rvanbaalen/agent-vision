@@ -1,37 +1,23 @@
 import AppKit
 import AgentVisionShared
 
+/// Thin colored overlay that sits on the title bar of the selected area.
 class BorderWindow: NSWindow {
-    private var borderView: BorderView!
+    private var overlayView: TitleBarOverlayView!
+
+    static let barHeight: CGFloat = 22
 
     init(area: CaptureArea, sessionColor: SessionColor, sessionLabel: String) {
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let screenHeight = screen.frame.height
 
-        let padding: CGFloat = 4
-        let labelHeight: CGFloat = 18
-
-        // Check if label above the border would extend beyond the screen top
-        let topEdgeInAppKit = screenHeight - CGFloat(area.y) + padding + labelHeight
-        let labelOnTop = topEdgeInAppKit <= screenHeight
-
-        let frame: NSRect
-        if labelOnTop {
-            frame = NSRect(
-                x: CGFloat(area.x) - padding,
-                y: screenHeight - CGFloat(area.y) - CGFloat(area.height) - padding,
-                width: CGFloat(area.width) + padding * 2,
-                height: CGFloat(area.height) + padding * 2 + labelHeight
-            )
-        } else {
-            // Label goes below the border
-            frame = NSRect(
-                x: CGFloat(area.x) - padding,
-                y: screenHeight - CGFloat(area.y) - CGFloat(area.height) - padding - labelHeight,
-                width: CGFloat(area.width) + padding * 2,
-                height: CGFloat(area.height) + padding * 2 + labelHeight
-            )
-        }
+        // Position at the top edge of the selected area (where the title bar is)
+        let frame = NSRect(
+            x: CGFloat(area.x),
+            y: screenHeight - CGFloat(area.y) - Self.barHeight,
+            width: CGFloat(area.width),
+            height: Self.barHeight
+        )
 
         super.init(
             contentRect: frame,
@@ -47,37 +33,28 @@ class BorderWindow: NSWindow {
         sharingType = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        borderView = BorderView(
+        overlayView = TitleBarOverlayView(
             frame: NSRect(origin: .zero, size: frame.size),
-            padding: padding,
-            labelHeight: labelHeight,
-            labelOnTop: labelOnTop,
-            color: NSColor(red: sessionColor.red, green: sessionColor.green, blue: sessionColor.blue, alpha: 0.7),
+            color: NSColor(red: sessionColor.red, green: sessionColor.green, blue: sessionColor.blue, alpha: 1),
             label: sessionLabel
         )
-        contentView = borderView
+        contentView = overlayView
     }
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
     func updateLabel(_ newLabel: String) {
-        borderView.label = newLabel
-        borderView.needsDisplay = true
+        overlayView.label = newLabel
+        overlayView.needsDisplay = true
     }
 }
 
-class BorderView: NSView {
-    let padding: CGFloat
-    let labelHeight: CGFloat
-    let labelOnTop: Bool
+class TitleBarOverlayView: NSView {
     let color: NSColor
     var label: String
 
-    init(frame: NSRect, padding: CGFloat, labelHeight: CGFloat, labelOnTop: Bool, color: NSColor, label: String) {
-        self.padding = padding
-        self.labelHeight = labelHeight
-        self.labelOnTop = labelOnTop
+    init(frame: NSRect, color: NSColor, label: String) {
         self.color = color
         self.label = label
         super.init(frame: frame)
@@ -88,45 +65,22 @@ class BorderView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let borderY: CGFloat
-        if labelOnTop {
-            borderY = padding
-        } else {
-            borderY = padding + labelHeight
-        }
+        // Semi-transparent colored bar
+        color.withAlphaComponent(0.75).setFill()
+        let barPath = NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4)
+        barPath.fill()
 
-        // Dashed border rectangle
-        let borderRect = NSRect(
-            x: padding,
-            y: borderY,
-            width: bounds.width - padding * 2,
-            height: bounds.height - padding * 2 - labelHeight
-        )
-
-        let path = NSBezierPath(rect: borderRect)
-        path.lineWidth = 2
-        let dashPattern: [CGFloat] = [6, 4]
-        path.setLineDash(dashPattern, count: 2, phase: 0)
-        color.setStroke()
-        path.stroke()
-
-        // Label
+        // Label text
         let labelString = NSAttributedString(
             string: label,
             attributes: [
-                .font: NSFont.systemFont(ofSize: 10, weight: .medium),
-                .foregroundColor: color,
-                .backgroundColor: color.withAlphaComponent(0.15),
+                .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
+                .foregroundColor: NSColor.white,
             ]
         )
-
-        let labelX = bounds.width - padding - labelString.size().width - 4
-        let labelY: CGFloat
-        if labelOnTop {
-            labelY = bounds.height - padding - labelHeight + 2
-        } else {
-            labelY = padding + 2
-        }
-        labelString.draw(at: NSPoint(x: labelX, y: labelY))
+        let textSize = labelString.size()
+        let textX = bounds.width - textSize.width - 8
+        let textY = (bounds.height - textSize.height) / 2
+        labelString.draw(at: NSPoint(x: textX, y: textY))
     }
 }
