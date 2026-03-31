@@ -27,4 +27,9 @@ import Testing
         #expect(Config.isValidSessionID("a1b2c3d4-e5f6-7890-abcd-ef123456789") == false) // too short
         #expect(Config.isValidSessionID("a1b2c3d4-e5f6-7890-abcd-ef12345678901") == false) // too long
     }
+
+    @Test func testGuiPidFilePath() {
+        #expect(Config.guiPidFilePath.lastPathComponent == "gui.pid")
+        #expect(Config.guiPidFilePath.path.contains(".agent-vision"))
+    }
 }

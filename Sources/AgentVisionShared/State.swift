@@ -17,10 +17,23 @@ public struct CaptureArea: Codable, Sendable {
 public struct AppState: Codable, Sendable {
     public var pid: Int32
     public var area: CaptureArea?
+    public var colorIndex: Int
 
-    public init(pid: Int32, area: CaptureArea?) {
+    public init(pid: Int32, area: CaptureArea?, colorIndex: Int = 0) {
         self.pid = pid
         self.area = area
+        self.colorIndex = colorIndex
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case pid, area, colorIndex
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pid = try container.decode(Int32.self, forKey: .pid)
+        area = try container.decodeIfPresent(CaptureArea.self, forKey: .area)
+        colorIndex = try container.decodeIfPresent(Int.self, forKey: .colorIndex) ?? 0
     }
 }
 

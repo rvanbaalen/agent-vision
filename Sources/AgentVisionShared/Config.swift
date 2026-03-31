@@ -4,6 +4,7 @@ public enum Config {
     public static let stateDirectory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".agent-vision")
     public static let sessionsDirectory = stateDirectory.appendingPathComponent("sessions")
+    public static let guiPidFilePath = stateDirectory.appendingPathComponent("gui.pid")
 
     // MARK: - Session Paths
 

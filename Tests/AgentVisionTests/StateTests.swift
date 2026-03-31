@@ -70,4 +70,20 @@ final class StateTests: XCTestCase {
         let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue
         XCTAssertEqual(permissions, 0o600)
     }
+
+    func testStateWithColorIndex() throws {
+        let state = AppState(pid: 1, area: nil, colorIndex: 3)
+        try StateFile.write(state, to: testFile, createDirectory: testDir)
+        let read = try XCTUnwrap(StateFile.read(from: testFile))
+        XCTAssertEqual(read.colorIndex, 3)
+    }
+
+    func testStateWithoutColorIndexDefaultsToZero() throws {
+        // Simulate old state.json without colorIndex field
+        let json = #"{"pid":1}"#
+        try FileManager.default.createDirectory(at: testDir, withIntermediateDirectories: true)
+        try json.data(using: .utf8)!.write(to: testFile)
+        let read = try XCTUnwrap(StateFile.read(from: testFile))
+        XCTAssertEqual(read.colorIndex, 0)
+    }
 }
