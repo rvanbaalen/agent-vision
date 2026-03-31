@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/rvanbaalen/agent-vision/compare/v0.4.0...v0.5.0) (2026-03-31)
+
+
+### Features
+
+* exponential backoff for focus command (0.5s→8s, max 20 retries) ([e0d24d2](https://github.com/rvanbaalen/agent-vision/commit/e0d24d25208fbfd6028412789cee8a15e721939f))
+
 ## [0.4.0](https://github.com/rvanbaalen/agent-vision/compare/v0.3.5...v0.4.0) (2026-03-31)
 
 
