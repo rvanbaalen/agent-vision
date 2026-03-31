@@ -76,6 +76,7 @@ class SessionManager {
             let label = borderLabel(for: update.id)
             let border = BorderWindow(area: update.area, sessionColor: color, sessionLabel: label)
             sessions[update.id]?.area = update.area
+            sessions[update.id]?.borderWindow?.stopTracking()
             sessions[update.id]?.borderWindow?.orderOut(nil)
             sessions[update.id]?.borderWindow = border
             sessions[update.id]?.borderWindow?.makeKeyAndOrderFront(nil)
@@ -114,6 +115,7 @@ class SessionManager {
     private func removeSession(id: String) {
         NSLog("[agent-vision] SessionManager: removing session \(id)")
         sessions[id]?.actionWatcher.stop()
+        sessions[id]?.borderWindow?.stopTracking()
         sessions[id]?.borderWindow?.orderOut(nil)
         sessions.removeValue(forKey: id)
 

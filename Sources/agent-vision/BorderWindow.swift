@@ -1,17 +1,20 @@
 import AppKit
 import AgentVisionShared
 
-/// Thin colored overlay that sits on the title bar of the selected area.
+/// Colored overlay that sits on the title bar of the tracked window and follows it.
 class BorderWindow: NSWindow {
     private var overlayView: TitleBarOverlayView!
+    private var trackingTimer: Timer?
+    private let trackedWindowNumber: UInt32?
 
     static let barHeight: CGFloat = 22
 
     init(area: CaptureArea, sessionColor: SessionColor, sessionLabel: String) {
+        self.trackedWindowNumber = area.windowNumber
+
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let screenHeight = screen.frame.height
 
-        // Position at the top edge of the selected area (where the title bar is)
         let frame = NSRect(
             x: CGFloat(area.x),
             y: screenHeight - CGFloat(area.y) - Self.barHeight,
@@ -39,6 +42,11 @@ class BorderWindow: NSWindow {
             label: sessionLabel
         )
         contentView = overlayView
+
+        // If tracking a specific window, poll its position
+        if trackedWindowNumber != nil {
+            startTracking()
+        }
     }
 
     override var canBecomeKey: Bool { false }
@@ -48,6 +56,55 @@ class BorderWindow: NSWindow {
         overlayView.label = newLabel
         overlayView.needsDisplay = true
     }
+
+    private func startTracking() {
+        trackingTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updatePosition()
+            }
+        }
+    }
+
+    private func updatePosition() {
+        guard let windowNum = trackedWindowNumber else { return }
+
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return }
+
+        for info in list {
+            guard let num = info[kCGWindowNumber as String] as? UInt32,
+                  num == windowNum,
+                  let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
+                  let wx = boundsDict["X"] as? CGFloat,
+                  let wy = boundsDict["Y"] as? CGFloat,
+                  let ww = boundsDict["Width"] as? CGFloat else { continue }
+
+            let screen = NSScreen.main ?? NSScreen.screens[0]
+            let screenHeight = screen.frame.height
+
+            let newFrame = NSRect(
+                x: wx,
+                y: screenHeight - wy - Self.barHeight,
+                width: ww,
+                height: Self.barHeight
+            )
+
+            if frame != newFrame {
+                setFrame(newFrame, display: true)
+            }
+            return
+        }
+
+        // Window not found — it may have been closed
+        orderOut(nil)
+        trackingTimer?.invalidate()
+        trackingTimer = nil
+    }
+
+    func stopTracking() {
+        trackingTimer?.invalidate()
+        trackingTimer = nil
+    }
+
 }
 
 class TitleBarOverlayView: NSView {

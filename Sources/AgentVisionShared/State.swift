@@ -5,12 +5,28 @@ public struct CaptureArea: Codable, Sendable {
     public let y: Double
     public let width: Double
     public let height: Double
+    /// The CGWindowID of the tracked window (nil for drag-selected areas).
+    public let windowNumber: UInt32?
 
-    public init(x: Double, y: Double, width: Double, height: Double) {
+    public init(x: Double, y: Double, width: Double, height: Double, windowNumber: UInt32? = nil) {
         self.x = x
         self.y = y
         self.width = width
         self.height = height
+        self.windowNumber = windowNumber
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case x, y, width, height, windowNumber
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        x = try container.decode(Double.self, forKey: .x)
+        y = try container.decode(Double.self, forKey: .y)
+        width = try container.decode(Double.self, forKey: .width)
+        height = try container.decode(Double.self, forKey: .height)
+        windowNumber = try container.decodeIfPresent(UInt32.self, forKey: .windowNumber)
     }
 }
 
