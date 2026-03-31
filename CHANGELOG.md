@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5](https://github.com/rvanbaalen/agent-vision/compare/v0.3.4...v0.3.5) (2026-03-31)
+
+
+### Bug Fixes
+
+* verify focused window matches target for keyboard actions — handles multiple windows from same app ([eff757a](https://github.com/rvanbaalen/agent-vision/commit/eff757ac14e6a57470dfcfa102093d8faf8a6579))
+
 ## [0.3.4](https://github.com/rvanbaalen/agent-vision/compare/v0.3.3...v0.3.4) (2026-03-31)
 
 
