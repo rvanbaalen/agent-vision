@@ -253,15 +253,9 @@ class ActionWatcher {
             return
         }
 
-        // CGEvent actions go to the focused window. REFUSE if the session
-        // window is not the frontmost window. The LLM must retry.
-        let isKeyboardAction: Bool
-        switch action {
-        case .type, .key: isKeyboardAction = true
-        default: isKeyboardAction = false
-        }
-
-        if !isSessionWindowFrontmost(area: area, requireKeyboardFocus: isKeyboardAction) {
+        // ALL CGEvent actions require the target window to have keyboard focus.
+        // Refuse immediately if it doesn't — the LLM must retry.
+        if !isSessionWindowFrontmost(area: area) {
             let owner = area.windowOwner ?? "the session window"
             NSLog("[agent-vision] BLOCKED: \(owner) is not the frontmost window — refusing CGEvent action")
             let result = ActionResult(success: false, message: "Error: \(owner) is not the focused window. Switch focus to it and retry.")
@@ -298,7 +292,7 @@ class ActionWatcher {
     /// When `requireKeyboardFocus` is true (for type/key actions), also verifies
     /// the specific window has keyboard focus using the Accessibility API —
     /// not just that the app is active (handles multiple windows from same app).
-    private func isSessionWindowFrontmost(area: CaptureArea, requireKeyboardFocus: Bool = false) -> Bool {
+    private func isSessionWindowFrontmost(area: CaptureArea) -> Bool {
         guard let list = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
         ) as? [[String: Any]] else {
@@ -342,9 +336,9 @@ class ActionWatcher {
                     return false
                 }
 
-                // For keyboard actions, also check the focused WINDOW matches our target.
-                // The app may have multiple windows — keyboard events go to the focused one.
-                if requireKeyboardFocus, targetWindowNumber != nil {
+                // Also verify the specific WINDOW has keyboard focus — not just the app.
+                // Handles multiple windows from the same app (e.g. two Ghostty terminals).
+                if targetWindowNumber != nil {
                     if !isFocusedWindow(pid: pid, targetBounds: frame) {
                         NSLog("[agent-vision] Focus check FAILED: \(frontmostOwner) is active but a different window has keyboard focus")
                         return false

@@ -1,6 +1,8 @@
 @preconcurrency import Foundation
 import ArgumentParser
 import CoreGraphics
+import AppKit
+import ApplicationServices
 import AgentVisionShared
 
 @main
@@ -8,7 +10,7 @@ struct AgentVision: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "agent-vision",
         abstract: "Give AI agents eyes on your screen",
-        subcommands: [Start.self, ListSessions.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self, Learn.self]
+        subcommands: [Start.self, ListSessions.self, Focus.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self, Learn.self]
     )
 
     @Flag(name: .long, help: .hidden)
@@ -165,6 +167,103 @@ struct ListSessions: ParsableCommand {
         if !found {
             print("No active sessions.")
         }
+    }
+}
+
+struct Focus: ParsableCommand {
+    static let configuration = CommandConfiguration(abstract: "Wait for the session window to have keyboard focus")
+
+    @Option(name: .long, help: "Session ID")
+    var session: String
+
+    @Option(name: .long, help: "Timeout in seconds (default: 60)")
+    var timeout: Int = 60
+
+    func run() throws {
+        let area = try requireArea(session: session)
+        let owner = area.windowOwner ?? "the session window"
+
+        fputs("Waiting for \(owner) to have keyboard focus...\n", stderr)
+
+        let deadline = Date().addingTimeInterval(TimeInterval(timeout))
+
+        while Date() < deadline {
+            if isWindowFocused(area: area) {
+                // First check passed — wait 5 seconds and confirm focus is stable
+                fputs("\(owner) has focus — confirming (5s)...\n", stderr)
+                Thread.sleep(forTimeInterval: 5)
+
+                if isWindowFocused(area: area) {
+                    print("Focus confirmed on \(owner).")
+                    return
+                }
+                fputs("Focus lost during confirmation. Still waiting...\n", stderr)
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+
+        fputs("Timed out waiting for \(owner) to have focus.\n", stderr)
+        throw ExitCode.failure
+    }
+
+    private func isWindowFocused(area: CaptureArea) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else { return false }
+
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let areaCenter = CGPoint(x: area.x + area.width / 2, y: area.y + area.height / 2)
+
+        for info in list {
+            guard let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t,
+                  let wx = boundsDict["X"] as? CGFloat,
+                  let wy = boundsDict["Y"] as? CGFloat,
+                  let ww = boundsDict["Width"] as? CGFloat,
+                  let wh = boundsDict["Height"] as? CGFloat else { continue }
+
+            if pid == myPID { continue }
+            if let layer = info[kCGWindowLayer as String] as? Int, layer != 0 { continue }
+
+            let frame = CGRect(x: wx, y: wy, width: ww, height: wh)
+            if frame.contains(areaCenter) {
+                // Check window number matches
+                if let targetNum = area.windowNumber,
+                   let frontNum = info[kCGWindowNumber as String] as? UInt32,
+                   frontNum != targetNum { return false }
+
+                // Check app is active
+                guard let app = NSRunningApplication(processIdentifier: pid), app.isActive else { return false }
+
+                // Check the specific window has keyboard focus (AX API)
+                if area.windowNumber != nil {
+                    let appElement = AXUIElementCreateApplication(pid)
+                    var focusedRef: CFTypeRef?
+                    let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedRef)
+                    guard result == .success, focusedRef != nil else { return false }
+
+                    let windowElement = focusedRef as! AXUIElement
+                    var posRef: CFTypeRef?
+                    AXUIElementCopyAttributeValue(windowElement, kAXPositionAttribute as CFString, &posRef)
+                    var pos = CGPoint.zero
+                    if let posRef { AXValueGetValue(posRef as! AXValue, .cgPoint, &pos) }
+
+                    var sizeRef: CFTypeRef?
+                    AXUIElementCopyAttributeValue(windowElement, kAXSizeAttribute as CFString, &sizeRef)
+                    var size = CGSize.zero
+                    if let sizeRef { AXValueGetValue(sizeRef as! AXValue, .cgSize, &size) }
+
+                    let tolerance: CGFloat = 5
+                    if abs(pos.x - frame.origin.x) > tolerance || abs(pos.y - frame.origin.y) > tolerance
+                        || abs(size.width - frame.width) > tolerance || abs(size.height - frame.height) > tolerance {
+                        return false
+                    }
+                }
+
+                return true
+            }
+        }
+        return false
     }
 }
 
