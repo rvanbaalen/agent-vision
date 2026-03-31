@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/rvanbaalen/agent-vision/compare/v0.3.0...v0.3.1) (2026-03-31)
+
+
+### Bug Fixes
+
+* run focus-await on background thread to prevent GUI freeze, covers all CGEvent actions ([f1addfa](https://github.com/rvanbaalen/agent-vision/commit/f1addfad8f9ec7aa66fdd2ddf9aa96cfa99427e3))
+
 ## [0.3.0](https://github.com/rvanbaalen/agent-vision/compare/v0.2.2...v0.3.0) (2026-03-31)
 
 
