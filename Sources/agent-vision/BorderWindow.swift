@@ -1,25 +1,39 @@
 import AppKit
 import AgentVisionShared
 
-/// Colored overlay that sits on the title bar of the tracked window and follows it.
+/// Small colored label that floats on the title bar of the tracked window.
 class BorderWindow: NSWindow {
-    private var overlayView: TitleBarOverlayView!
-    private var trackingTimer: Timer?
+    private var labelField: NSTextField!
+    private var displayLink: CVDisplayLink?
     private let trackedWindowNumber: UInt32?
+    private let sessionColor: NSColor
 
-    static let barHeight: CGFloat = 22
+    /// Inset from the window's top-right corner to avoid clipping the border radius.
+    private static let insetX: CGFloat = 6
+    private static let insetY: CGFloat = 4
 
-    init(area: CaptureArea, sessionColor: SessionColor, sessionLabel: String) {
+    init(area: CaptureArea, sessionColor sc: SessionColor, sessionLabel: String) {
         self.trackedWindowNumber = area.windowNumber
+        self.sessionColor = NSColor(red: sc.red, green: sc.green, blue: sc.blue, alpha: 1)
+
+        // Measure label to size the window exactly
+        let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        let textSize = (sessionLabel as NSString).size(withAttributes: attrs)
+        let paddingH: CGFloat = 8
+        let paddingV: CGFloat = 3
+        let labelWidth = textSize.width + paddingH * 2
+        let labelHeight = textSize.height + paddingV * 2
 
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let screenHeight = screen.frame.height
 
+        // Position at the top-right of the area, inset to avoid border radius
         let frame = NSRect(
-            x: CGFloat(area.x),
-            y: screenHeight - CGFloat(area.y) - Self.barHeight,
-            width: CGFloat(area.width),
-            height: Self.barHeight
+            x: CGFloat(area.x) + CGFloat(area.width) - labelWidth - Self.insetX,
+            y: screenHeight - CGFloat(area.y) - labelHeight - Self.insetY,
+            width: labelWidth,
+            height: labelHeight
         )
 
         super.init(
@@ -36,16 +50,23 @@ class BorderWindow: NSWindow {
         sharingType = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        overlayView = TitleBarOverlayView(
-            frame: NSRect(origin: .zero, size: frame.size),
-            color: NSColor(red: sessionColor.red, green: sessionColor.green, blue: sessionColor.blue, alpha: 1),
-            label: sessionLabel
-        )
-        contentView = overlayView
+        let bg = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        bg.wantsLayer = true
+        bg.layer?.backgroundColor = sessionColor.withAlphaComponent(0.8).cgColor
+        bg.layer?.cornerRadius = (labelHeight / 2).rounded(.down)
+        bg.layer?.masksToBounds = true
 
-        // If tracking a specific window, poll its position
+        labelField = NSTextField(labelWithString: sessionLabel)
+        labelField.font = font
+        labelField.textColor = .white
+        labelField.alignment = .center
+        labelField.frame = NSRect(x: 0, y: 0, width: labelWidth, height: labelHeight)
+
+        bg.addSubview(labelField)
+        contentView = bg
+
         if trackedWindowNumber != nil {
-            startTracking()
+            startDisplayLink()
         }
     }
 
@@ -53,16 +74,30 @@ class BorderWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 
     func updateLabel(_ newLabel: String) {
-        overlayView.label = newLabel
-        overlayView.needsDisplay = true
+        labelField.stringValue = newLabel
     }
 
-    private func startTracking() {
-        trackingTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.updatePosition()
+    // MARK: - CVDisplayLink tracking
+
+    private func startDisplayLink() {
+        var link: CVDisplayLink?
+        CVDisplayLinkCreateWithActiveCGDisplays(&link)
+        guard let link else { return }
+
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        CVDisplayLinkSetOutputCallback(link, { (_, _, _, _, _, userInfo) -> CVReturn in
+            guard let userInfo else { return kCVReturnSuccess }
+            let window = Unmanaged<BorderWindow>.fromOpaque(userInfo).takeUnretainedValue()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    window.updatePosition()
+                }
             }
-        }
+            return kCVReturnSuccess
+        }, selfPtr)
+
+        CVDisplayLinkStart(link)
+        self.displayLink = link
     }
 
     private func updatePosition() {
@@ -80,64 +115,31 @@ class BorderWindow: NSWindow {
 
             let screen = NSScreen.main ?? NSScreen.screens[0]
             let screenHeight = screen.frame.height
+            let labelWidth = frame.width
+            let labelHeight = frame.height
 
             let newFrame = NSRect(
-                x: wx,
-                y: screenHeight - wy - Self.barHeight,
-                width: ww,
-                height: Self.barHeight
+                x: wx + ww - labelWidth - Self.insetX,
+                y: screenHeight - wy - labelHeight - Self.insetY,
+                width: labelWidth,
+                height: labelHeight
             )
 
             if frame != newFrame {
-                setFrame(newFrame, display: true)
+                setFrame(newFrame, display: false)
             }
             return
         }
 
         // Window not found — it may have been closed
         orderOut(nil)
-        trackingTimer?.invalidate()
-        trackingTimer = nil
+        stopTracking()
     }
 
     func stopTracking() {
-        trackingTimer?.invalidate()
-        trackingTimer = nil
-    }
-
-}
-
-class TitleBarOverlayView: NSView {
-    let color: NSColor
-    var label: String
-
-    init(frame: NSRect, color: NSColor, label: String) {
-        self.color = color
-        self.label = label
-        super.init(frame: frame)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        // Semi-transparent colored bar
-        color.withAlphaComponent(0.75).setFill()
-        let barPath = NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4)
-        barPath.fill()
-
-        // Label text
-        let labelString = NSAttributedString(
-            string: label,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: NSColor.white,
-            ]
-        )
-        let textSize = labelString.size()
-        let textX = bounds.width - textSize.width - 8
-        let textY = (bounds.height - textSize.height) / 2
-        labelString.draw(at: NSPoint(x: textX, y: textY))
+        if let link = displayLink {
+            CVDisplayLinkStop(link)
+            displayLink = nil
+        }
     }
 }
