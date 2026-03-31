@@ -368,9 +368,9 @@ class ActionWatcher {
         var focusedWindowRef: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindowRef)
         guard result == .success, let focusedWindow = focusedWindowRef else {
-            // Can't determine focused window — fail safe, allow the action
-            NSLog("[agent-vision] isFocusedWindow: cannot get focused window via AX API (error: \(result.rawValue))")
-            return true
+            // Can't determine focused window — refuse action to be safe
+            NSLog("[agent-vision] isFocusedWindow: cannot get focused window via AX API (error: \(result.rawValue)), refusing action")
+            return false
         }
 
         let windowElement = focusedWindow as! AXUIElement
