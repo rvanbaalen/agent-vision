@@ -8,7 +8,7 @@ struct AgentVision: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "agent-vision",
         abstract: "Give AI agents eyes on your screen",
-        subcommands: [Start.self, Wait.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self]
+        subcommands: [Start.self, Wait.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self, SkillInfo.self]
     )
 
     @Flag(name: .long, help: .hidden)
@@ -496,5 +496,16 @@ struct Elements: ParsableCommand {
             try ScreenCapture.captureWithElements(area: area, elements: result.elements, to: URL(fileURLWithPath: outputPath))
             fputs("Annotated screenshot: \(outputPath)\n", stderr)
         }
+    }
+}
+
+struct SkillInfo: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "skill",
+        abstract: "Print AI agent instructions for using agent-vision"
+    )
+
+    func run() throws {
+        print(skillContent)
     }
 }
