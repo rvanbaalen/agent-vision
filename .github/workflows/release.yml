@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  update-homebrew:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get release tarball SHA256
+        id: sha
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          SHA=$(curl -sL "https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz" | shasum -a 256 | cut -d' ' -f1)
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew formula
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          repository: rvanbaalen/homebrew-agent-vision
+          event-type: update-formula
+          client-payload: |
+            {
+              "version": "${{ needs.release-please.outputs.version }}",
+              "tag": "${{ needs.release-please.outputs.tag_name }}",
+              "sha256": "${{ steps.sha.outputs.sha256 }}"
+            }
