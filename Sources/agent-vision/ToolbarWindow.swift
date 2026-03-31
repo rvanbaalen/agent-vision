@@ -3,12 +3,13 @@ import AgentVisionShared
 
 class ToolbarWindow: NSPanel {
     private var selectButton: NSButton!
+    private var dropdownButton: NSButton!
+    weak var sessionManager: SessionManager?
 
     init() {
-        let toolbarWidth: CGFloat = 460
+        let toolbarWidth: CGFloat = 560
         let toolbarHeight: CGFloat = 52
 
-        // Position at bottom center of main screen
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let screenFrame = screen.visibleFrame
         let x = screenFrame.midX - toolbarWidth / 2
@@ -33,12 +34,29 @@ class ToolbarWindow: NSPanel {
         setupContent(toolbarWidth: toolbarWidth, toolbarHeight: toolbarHeight)
     }
 
-    func updateSelectButtonTitle(_ title: String) {
-        selectButton?.title = "Select Area  \(title)"
+    func refreshDropdown() {
+        guard let sm = sessionManager, let sid = sm.selectedSessionID,
+              let tracked = sm.sessions[sid] else {
+            dropdownButton?.title = "No sessions"
+            return
+        }
+        let dims: String
+        if let area = tracked.area {
+            dims = "\(Int(area.width))\u{00d7}\(Int(area.height))"
+        } else {
+            dims = "awaiting selection"
+        }
+        let prefix = String(sid.prefix(8))
+        dropdownButton?.title = "\(prefix) · \(dims)"
+
+        // Tint dropdown background to session color
+        let color = SessionColors.color(forIndex: tracked.colorIndex)
+        dropdownButton?.layer?.backgroundColor = NSColor(
+            red: color.red, green: color.green, blue: color.blue, alpha: 0.15
+        ).cgColor
     }
 
     private func setupContent(toolbarWidth: CGFloat, toolbarHeight: CGFloat) {
-        // Visual effect background
         let visualEffect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: toolbarWidth, height: toolbarHeight))
         visualEffect.material = .hudWindow
         visualEffect.state = .active
@@ -53,12 +71,34 @@ class ToolbarWindow: NSPanel {
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.textColor = .labelColor
 
-        // Separator
-        let separator = NSBox(frame: .zero)
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.boxType = .separator
+        // Separator 1
+        let sep1 = NSBox(frame: .zero)
+        sep1.translatesAutoresizingMaskIntoConstraints = false
+        sep1.boxType = .separator
 
-        // Select Area button — icon leading, label beside it
+        // Session dropdown
+        let dropdown = HoverButton(frame: .zero)
+        dropdown.translatesAutoresizingMaskIntoConstraints = false
+        dropdown.bezelStyle = .regularSquare
+        dropdown.isBordered = false
+        dropdown.title = "No sessions"
+        dropdown.font = .systemFont(ofSize: 11, weight: .medium)
+        dropdown.contentTintColor = .labelColor
+        dropdown.target = self
+        dropdown.action = #selector(dropdownTapped(_:))
+        dropdown.wantsLayer = true
+        dropdown.layer?.cornerRadius = 6
+        let dropBg = NSColor.white.withAlphaComponent(0.08).cgColor
+        dropdown.layer?.backgroundColor = dropBg
+        dropdown.restingBackground = dropBg
+        self.dropdownButton = dropdown
+
+        // Separator 2
+        let sep2 = NSBox(frame: .zero)
+        sep2.translatesAutoresizingMaskIntoConstraints = false
+        sep2.boxType = .separator
+
+        // Select Area button
         let selectBtn = HoverButton(frame: .zero)
         selectBtn.translatesAutoresizingMaskIntoConstraints = false
         selectBtn.bezelStyle = .regularSquare
@@ -98,7 +138,7 @@ class ToolbarWindow: NSPanel {
         windowBtn.layer?.backgroundColor = btnBg
         windowBtn.restingBackground = btnBg
 
-        // Close button — plain NSButton, no padding cell
+        // Close button
         let closeButton = NSButton(frame: .zero)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.bezelStyle = .circular
@@ -110,7 +150,9 @@ class ToolbarWindow: NSPanel {
         closeButton.contentTintColor = .tertiaryLabelColor
 
         visualEffect.addSubview(titleLabel)
-        visualEffect.addSubview(separator)
+        visualEffect.addSubview(sep1)
+        visualEffect.addSubview(dropdown)
+        visualEffect.addSubview(sep2)
         visualEffect.addSubview(selectBtn)
         visualEffect.addSubview(windowBtn)
         visualEffect.addSubview(closeButton)
@@ -119,12 +161,20 @@ class ToolbarWindow: NSPanel {
             titleLabel.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor, constant: 16),
             titleLabel.centerYAnchor.constraint(equalTo: visualEffect.centerYAnchor),
 
-            separator.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 12),
-            separator.centerYAnchor.constraint(equalTo: visualEffect.centerYAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 22),
-            separator.widthAnchor.constraint(equalToConstant: 1),
+            sep1.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 10),
+            sep1.centerYAnchor.constraint(equalTo: visualEffect.centerYAnchor),
+            sep1.heightAnchor.constraint(equalToConstant: 22),
+            sep1.widthAnchor.constraint(equalToConstant: 1),
 
-            selectBtn.leadingAnchor.constraint(equalTo: separator.trailingAnchor, constant: 10),
+            dropdown.leadingAnchor.constraint(equalTo: sep1.trailingAnchor, constant: 8),
+            dropdown.centerYAnchor.constraint(equalTo: visualEffect.centerYAnchor),
+
+            sep2.leadingAnchor.constraint(equalTo: dropdown.trailingAnchor, constant: 8),
+            sep2.centerYAnchor.constraint(equalTo: visualEffect.centerYAnchor),
+            sep2.heightAnchor.constraint(equalToConstant: 22),
+            sep2.widthAnchor.constraint(equalToConstant: 1),
+
+            selectBtn.leadingAnchor.constraint(equalTo: sep2.trailingAnchor, constant: 8),
             selectBtn.centerYAnchor.constraint(equalTo: visualEffect.centerYAnchor),
 
             windowBtn.leadingAnchor.constraint(equalTo: selectBtn.trailingAnchor, constant: 6),
@@ -145,7 +195,11 @@ class ToolbarWindow: NSPanel {
     }
 
     @objc private func closeTapped() {
-        NSApp.terminate(nil)
+        guard let sm = sessionManager, let sid = sm.selectedSessionID else {
+            NSApp.terminate(nil)
+            return
+        }
+        sm.stopSession(id: sid)
     }
 
     @objc private func selectAreaTapped() {
@@ -156,6 +210,49 @@ class ToolbarWindow: NSPanel {
     @objc private func selectWindowTapped() {
         orderOut(nil)
         NotificationCenter.default.post(name: .beginWindowSelection, object: nil)
+    }
+
+    @objc private func dropdownTapped(_ sender: NSButton) {
+        guard let sm = sessionManager else { return }
+        let menu = NSMenu()
+
+        for tracked in sm.orderedSessions {
+            let color = SessionColors.color(forIndex: tracked.colorIndex)
+            let prefix = String(tracked.sessionID.prefix(8))
+            let dims: String
+            if let area = tracked.area {
+                dims = "\(Int(area.width))\u{00d7}\(Int(area.height))"
+            } else {
+                dims = "awaiting selection"
+            }
+
+            let item = NSMenuItem(title: "\(prefix) · \(dims)", action: #selector(selectSession(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = tracked.sessionID
+
+            let dot = NSMutableAttributedString(string: "● ", attributes: [
+                .foregroundColor: NSColor(red: color.red, green: color.green, blue: color.blue, alpha: 1),
+                .font: NSFont.systemFont(ofSize: 12),
+            ])
+            dot.append(NSAttributedString(string: "\(prefix) · \(dims)", attributes: [
+                .font: NSFont.systemFont(ofSize: 12),
+            ]))
+            item.attributedTitle = dot
+
+            if tracked.sessionID == sm.selectedSessionID {
+                item.state = .on
+            }
+
+            menu.addItem(item)
+        }
+
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
+    }
+
+    @objc private func selectSession(_ sender: NSMenuItem) {
+        guard let sid = sender.representedObject as? String else { return }
+        sessionManager?.selectedSessionID = sid
+        refreshDropdown()
     }
 }
 

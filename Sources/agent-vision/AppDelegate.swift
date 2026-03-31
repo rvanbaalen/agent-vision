@@ -1,49 +1,30 @@
 import AppKit
 import AgentVisionShared
 
-// Global session ID — set from main.swift, read by signal handler
-nonisolated(unsafe) var globalSessionID: String = ""
-
-// Signal handler for SIGTERM — must be a C function (no captures)
-private func handleSIGTERM(_: Int32) {
-    if !globalSessionID.isEmpty {
-        try? FileManager.default.removeItem(at: Config.sessionDirectory(for: globalSessionID))
-    }
-    DispatchQueue.main.async { NSApp.terminate(nil) }
-}
-
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var sessionID: String = ""
     var toolbarWindow: ToolbarWindow!
     var selectionOverlay: SelectionOverlay?
     var windowSelectionController: WindowSelectionController?
-    var borderWindow: BorderWindow?
-    var actionWatcher: ActionWatcher?
     var feedbackWindow: ActionFeedbackWindow?
+    let sessionManager = SessionManager()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSLog("[agent-vision] applicationDidFinishLaunching — session=\(sessionID)")
-        globalSessionID = sessionID
-
-        // Write PID to state file for this session
-        let state = AppState(pid: ProcessInfo.processInfo.processIdentifier, area: nil)
-        let sessionDir = Config.sessionDirectory(for: sessionID)
-        do {
-            try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: sessionDir)
-            NSLog("[agent-vision] State file written to \(Config.stateFilePath(for: sessionID).path)")
-        } catch {
-            NSLog("[agent-vision] FATAL: Failed to write state file: \(error)")
-            NSApp.terminate(nil)
-            return
-        }
+        NSLog("[agent-vision] applicationDidFinishLaunching")
 
         // Set up signal handler for cleanup
-        signal(SIGTERM, handleSIGTERM)
+        signal(SIGTERM) { _ in
+            try? FileManager.default.removeItem(at: Config.guiPidFilePath)
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+
+        // Set up menu bar
+        setupMenuBar()
 
         // Create and show toolbar
         NSLog("[agent-vision] Creating toolbar window")
         toolbarWindow = ToolbarWindow()
+        toolbarWindow.sessionManager = sessionManager
         toolbarWindow.showToolbar()
 
         // Register for notifications
@@ -72,18 +53,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
-        actionWatcher = ActionWatcher(sessionID: sessionID)
-        actionWatcher?.start { [weak self] action, area in
+        // Start session manager
+        sessionManager.onSessionsChanged = { [weak self] in
+            self?.toolbarWindow.refreshDropdown()
+            self?.sessionManager.refreshBorderLabels()
+            self?.rebuildSessionMenu()
+        }
+        sessionManager.onActionFeedback = { [weak self] action, area in
             self?.showActionFeedback(action: action, area: area)
         }
-        NSLog("[agent-vision] App launch complete, action watcher started")
+        sessionManager.startScanning()
+
+        NSLog("[agent-vision] App launch complete, session scanner started")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        NSLog("[agent-vision] applicationWillTerminate — cleaning up session=\(sessionID)")
-        actionWatcher?.stop()
-        // Clean up entire session directory
-        try? FileManager.default.removeItem(at: Config.sessionDirectory(for: sessionID))
+        NSLog("[agent-vision] applicationWillTerminate — cleaning up")
+        sessionManager.stopScanning()
+        sessionManager.stopAllSessions()
+        try? FileManager.default.removeItem(at: Config.guiPidFilePath)
         NSLog("[agent-vision] Cleanup complete")
     }
 
@@ -132,22 +120,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowSelectionController?.end()
         windowSelectionController = nil
 
-        // Update state file with area for this session
-        let state = AppState(pid: ProcessInfo.processInfo.processIdentifier, area: area)
+        // Write area to the selected session's state file
+        guard let sid = sessionManager.selectedSessionID,
+              let tracked = sessionManager.sessions[sid] else {
+            NSLog("[agent-vision] areaWasSelected — no selected session")
+            toolbarWindow.showToolbar()
+            return
+        }
+
+        let guiPid = ProcessInfo.processInfo.processIdentifier
+        let state = AppState(pid: guiPid, area: area, colorIndex: tracked.colorIndex)
         do {
-            try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: Config.sessionDirectory(for: sessionID))
+            try StateFile.write(state, to: Config.stateFilePath(for: sid), createDirectory: Config.sessionDirectory(for: sid))
         } catch {
             NSLog("[agent-vision] ERROR: Failed to write area to state: \(error)")
         }
 
-        // Show toolbar again with dimensions
-        toolbarWindow.updateSelectButtonTitle("\(Int(area.width))\u{00d7}\(Int(area.height))")
         toolbarWindow.showToolbar()
-
-        // Show border window
-        borderWindow?.orderOut(nil)
-        borderWindow = BorderWindow(area: area)
-        borderWindow?.makeKeyAndOrderFront(nil)
+        // Session scanner will pick up the area change and create the border
     }
 
     @objc func selectionWasCancelled() {
@@ -158,5 +148,4 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowSelectionController = nil
         toolbarWindow.showToolbar()
     }
-
 }

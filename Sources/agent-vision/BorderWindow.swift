@@ -2,7 +2,9 @@ import AppKit
 import AgentVisionShared
 
 class BorderWindow: NSWindow {
-    init(area: CaptureArea) {
+    private var borderView: BorderView!
+
+    init(area: CaptureArea, sessionColor: SessionColor, sessionLabel: String) {
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let screenHeight = screen.frame.height
 
@@ -29,25 +31,36 @@ class BorderWindow: NSWindow {
         sharingType = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        let borderView = BorderView(
+        borderView = BorderView(
             frame: NSRect(origin: .zero, size: frame.size),
             padding: padding,
-            labelHeight: labelHeight
+            labelHeight: labelHeight,
+            color: NSColor(red: sessionColor.red, green: sessionColor.green, blue: sessionColor.blue, alpha: 0.7),
+            label: sessionLabel
         )
         contentView = borderView
     }
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    func updateLabel(_ newLabel: String) {
+        borderView.label = newLabel
+        borderView.needsDisplay = true
+    }
 }
 
 class BorderView: NSView {
     let padding: CGFloat
     let labelHeight: CGFloat
+    let color: NSColor
+    var label: String
 
-    init(frame: NSRect, padding: CGFloat, labelHeight: CGFloat) {
+    init(frame: NSRect, padding: CGFloat, labelHeight: CGFloat, color: NSColor, label: String) {
         self.padding = padding
         self.labelHeight = labelHeight
+        self.color = color
+        self.label = label
         super.init(frame: frame)
     }
 
@@ -55,8 +68,6 @@ class BorderView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-
-        let blue = NSColor(red: 0, green: 0.478, blue: 1, alpha: 0.7)
 
         // Dashed border rectangle
         let borderRect = NSRect(
@@ -70,16 +81,16 @@ class BorderView: NSView {
         path.lineWidth = 2
         let dashPattern: [CGFloat] = [6, 4]
         path.setLineDash(dashPattern, count: 2, phase: 0)
-        blue.setStroke()
+        color.setStroke()
         path.stroke()
 
-        // "Agent Vision" label
+        // Label
         let labelString = NSAttributedString(
-            string: "Agent Vision",
+            string: label,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 10, weight: .medium),
-                .foregroundColor: blue,
-                .backgroundColor: NSColor(red: 0, green: 0.478, blue: 1, alpha: 0.1),
+                .foregroundColor: color,
+                .backgroundColor: color.withAlphaComponent(0.15),
             ]
         )
         let labelX = bounds.width - padding - labelString.size().width - 4

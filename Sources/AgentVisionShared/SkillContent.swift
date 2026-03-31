@@ -9,8 +9,8 @@ Agent Vision is a macOS CLI tool that gives you eyes and hands on the user's scr
 
 ## How It Works
 
-1. A session is started with `agent-vision start`, which prints a session UUID to stdout
-2. The user selects a screen region (window or dragged area) via a floating toolbar
+1. Run `agent-vision start` — it launches the GUI (or connects to an existing one) and blocks until the user selects a screen area
+2. On success, it prints the session UUID (first line) and area dimensions (second line)
 3. You issue CLI commands with `--session <uuid>` to capture screenshots, discover elements, and control input
 4. All interactions are scoped to the selected area — you cannot interact outside it
 
@@ -22,40 +22,35 @@ Agent Vision is a macOS CLI tool that gives you eyes and hands on the user's scr
 
 ## Session Management — READ THIS FIRST
 
-`agent-vision start` prints a session UUID to stdout (e.g. `a1b2c3d4-e5f6-7890-abcd-ef1234567890`). Every subsequent command requires `--session <uuid>` with this exact UUID.
+`agent-vision start` blocks until the user selects a screen area, then prints the session UUID on the first line and the area dimensions on the second line. It supports `--timeout N` (default 60s). Every subsequent command requires `--session <uuid>` with this exact UUID.
 
-**You must capture the UUID from the output of `start` and pass it as a literal string to every command.** Shell variables like `$SESSION` do not persist between separate command invocations. If you run `SESSION=$(agent-vision start)` in one shell call and then `agent-vision capture --session $SESSION` in a separate shell call, `$SESSION` will be empty and the command will fail.
+**You must capture the UUID from the output of `start` and pass it as a literal string to every command.** Shell variables like `$SESSION` do not persist between separate command invocations.
 
-Instead, do this:
-
-Step 1 — Start a session and read the UUID from stdout:
+Step 1 — Start a session (blocks until area selected):
 ```bash
 agent-vision start
 ```
-Output: `a1b2c3d4-e5f6-7890-abcd-ef1234567890`
+Output:
+```
+a1b2c3d4-e5f6-7890-abcd-ef1234567890
+Area selected: 800x600 at (100, 200)
+```
 
 Step 2 — Use that literal UUID in every subsequent command:
 ```bash
-agent-vision wait --session a1b2c3d4-e5f6-7890-abcd-ef1234567890
 agent-vision capture --session a1b2c3d4-e5f6-7890-abcd-ef1234567890
 agent-vision elements --session a1b2c3d4-e5f6-7890-abcd-ef1234567890
 ```
-
-If you can chain multiple commands in a single shell invocation, you may use a variable:
-```bash
-SESSION=$(agent-vision start) && agent-vision wait --session $SESSION --timeout 120
-```
-
-But for all subsequent calls in separate invocations, always paste the literal UUID.
 
 ## Quick Start
 
 ```bash
 agent-vision start
-# Output: a1b2c3d4-e5f6-7890-abcd-ef1234567890
-# Use that UUID in all commands below:
+# Blocks until user selects area, then prints:
+# a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# Area selected: 800x600 at (100, 200)
+# Use the UUID (first line) in all commands below:
 
-agent-vision wait --session a1b2c3d4-...      # Block until area selected
 agent-vision capture --session a1b2c3d4-...   # Take a screenshot (prints file path)
 agent-vision elements --session a1b2c3d4-...  # Discover clickable elements (prints JSON)
 agent-vision control click --element 3 --session a1b2c3d4-...  # Click element #3
@@ -66,11 +61,8 @@ agent-vision stop --session a1b2c3d4-...      # End session
 
 ### Session Management
 
-**`agent-vision start`**
-Creates a session, launches the floating toolbar. Prints session UUID to stdout. The toolbar has three buttons: Select Area (drag to mark a region), Select Window (hover and click a window), Close.
-
-**`agent-vision wait --session <uuid> [--timeout N]`**
-Blocks until user selects an area. Default timeout: 60s. Prints area dimensions on success.
+**`agent-vision start [--timeout N]`**
+Creates a session and launches the GUI (or connects to an existing one). Blocks until the user selects an area. Default timeout: 60s. On success, prints session UUID (first line) and area dimensions (second line). The toolbar has three buttons: Select Area (drag to mark a region), Select Window (hover and click a window), Close.
 
 **`agent-vision stop --session <uuid>`**
 Stops the session and cleans up state.
@@ -246,12 +238,12 @@ agent-vision control click --session <uuid> --at 400,150  # Click
 | `Element N not found` | Index out of range — re-run `elements` and check valid range |
 | `Stale scan: capture area changed` | Area was reselected — re-run `elements` |
 | `Specify either --at or --element, not both` | Use one targeting mode, not both |
-| `coordinates are outside the selected area` | Check X,Y against the area dimensions from `wait` output |
+| `coordinates are outside the selected area` | Check X,Y against the area dimensions from `start` output |
 | `Accessibility permission required` | Ask user to grant Accessibility permission in System Settings |
 | `Screen capture failed — no image returned` | Ask user to grant Screen Recording permission in System Settings |
 | `action timed out` | GUI may not be responding — ask user to check if Agent Vision is still running |
 | `Session is not running` | Run `agent-vision start` first |
-| `No area selected` | Run `agent-vision wait` or ask user to select an area via the toolbar |
+| `No area selected` | Run `agent-vision start` — it blocks until an area is selected |
 | `Invalid session ID` | The UUID format is wrong or missing — check you're passing the exact UUID from `start` output |
 | `Session not found` | The session was stopped or expired — run `agent-vision start` again |
 | `unknown key` | Check supported key names with `agent-vision control key --help` |
@@ -259,33 +251,32 @@ agent-vision control click --session <uuid> --at 400,150  # Click
 ## Full Example Session
 
 ```bash
-# Step 1: Start session — capture the UUID from stdout
+# Step 1: Start session — blocks until user selects an area
 agent-vision start
-# Output: a1b2c3d4-e5f6-7890-abcd-ef1234567890
-# Use this exact UUID in all commands below.
+# Output:
+# a1b2c3d4-e5f6-7890-abcd-ef1234567890
+# Area selected: 800x600 at (100, 200)
+# Use the UUID (first line) in all commands below.
 
-# Step 2: Wait for user to select an area
-agent-vision wait --session a1b2c3d4-e5f6-7890-abcd-ef1234567890
-
-# Step 3: Capture reference state
+# Step 2: Capture reference state
 agent-vision capture --session a1b2c3d4-e5f6-7890-abcd-ef1234567890 --output /tmp/reference.png
 # Read /tmp/reference.png to understand current UI
 
-# Step 4: Discover interactive elements
+# Step 3: Discover interactive elements
 agent-vision elements --session a1b2c3d4-e5f6-7890-abcd-ef1234567890
 # Read JSON — find target by label/role
 
-# Step 5: Interact
+# Step 4: Interact
 agent-vision control click --session a1b2c3d4-e5f6-7890-abcd-ef1234567890 --element 2
 agent-vision control type --session a1b2c3d4-e5f6-7890-abcd-ef1234567890 --text "hello" --element 2
 agent-vision control click --session a1b2c3d4-e5f6-7890-abcd-ef1234567890 --element 5
 
-# Step 6: Verify result
+# Step 5: Verify result
 sleep 1
 agent-vision capture --session a1b2c3d4-e5f6-7890-abcd-ef1234567890 --output /tmp/result.png
 # Read /tmp/result.png to check outcome
 
-# Step 7: End session
+# Step 6: End session
 agent-vision stop --session a1b2c3d4-e5f6-7890-abcd-ef1234567890
 ```
 """
