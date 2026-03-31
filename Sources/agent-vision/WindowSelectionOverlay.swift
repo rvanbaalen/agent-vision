@@ -15,6 +15,8 @@ class WindowSelectionController {
     private var currentRect: CGRect?
     /// The CGWindowID of the currently highlighted window.
     private var currentWindowNumber: UInt32?
+    /// The owner name of the currently highlighted window.
+    private var currentWindowOwner: String?
 
     func begin() {
         // Create the highlight border window — click-through, no background
@@ -76,16 +78,19 @@ class WindowSelectionController {
         // Find topmost window under cursor
         var hitRect: CGRect?
         var hitWindowNumber: UInt32?
+        var hitWindowOwner: String?
         for w in getWindowList() {
             if w.frame.contains(mouseQuartz) {
                 hitRect = w.frame
                 hitWindowNumber = w.windowNumber
+                hitWindowOwner = w.name
                 break
             }
         }
 
         currentRect = hitRect
         currentWindowNumber = hitWindowNumber
+        currentWindowOwner = hitWindowOwner
 
         if let qRect = hitRect {
             // Convert Quartz rect to AppKit screen coords
@@ -112,7 +117,8 @@ class WindowSelectionController {
             y: Double(rect.origin.y),
             width: Double(rect.width),
             height: Double(rect.height),
-            windowNumber: currentWindowNumber
+            windowNumber: currentWindowNumber,
+            windowOwner: currentWindowOwner
         )
         NotificationCenter.default.post(name: .areaSelected, object: area)
     }

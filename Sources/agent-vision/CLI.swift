@@ -8,7 +8,7 @@ struct AgentVision: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "agent-vision",
         abstract: "Give AI agents eyes on your screen",
-        subcommands: [Start.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self, SkillInfo.self]
+        subcommands: [Start.self, ListSessions.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self, SkillInfo.self]
     )
 
     @Flag(name: .long, help: .hidden)
@@ -129,6 +129,41 @@ func spawnGUI() throws -> Int32 {
     process.standardError = FileHandle.nullDevice
     try process.run()
     return process.processIdentifier
+}
+
+struct ListSessions: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "list",
+        abstract: "List active sessions"
+    )
+
+    func run() throws {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(at: Config.sessionsDirectory, includingPropertiesForKeys: nil) else {
+            print("No active sessions.")
+            return
+        }
+
+        var found = false
+        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            let sid = entry.lastPathComponent
+            guard Config.isValidSessionID(sid) else { continue }
+            let statePath = Config.stateFilePath(for: sid)
+            guard let state = try? StateFile.read(from: statePath) else { continue }
+
+            found = true
+            if let area = state.area {
+                let owner = area.windowOwner ?? "unknown"
+                print("\(sid)  \(owner)  \(Int(area.width))x\(Int(area.height))")
+            } else {
+                print("\(sid)  awaiting selection")
+            }
+        }
+
+        if !found {
+            print("No active sessions.")
+        }
+    }
 }
 
 struct Stop: ParsableCommand {
