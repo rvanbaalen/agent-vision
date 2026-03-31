@@ -24,7 +24,7 @@ func startGUI() -> Never {
     writeGuiPid(pid)
 
     let app = NSApplication.shared
-    app.setActivationPolicy(.regular)
+    app.setActivationPolicy(.accessory)
 
     let delegate = AppDelegate()
     app.delegate = delegate

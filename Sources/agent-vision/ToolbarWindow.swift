@@ -65,11 +65,19 @@ class ToolbarWindow: NSPanel {
         visualEffect.layer?.cornerRadius = 12
         visualEffect.layer?.masksToBounds = true
 
-        // Title label
-        let titleLabel = NSTextField(labelWithString: "Agent Vision")
+        // Title button (clickable — opens About)
+        let titleLabel = HoverButton(frame: .zero)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.bezelStyle = .regularSquare
+        titleLabel.isBordered = false
+        titleLabel.title = "Agent Vision"
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-        titleLabel.textColor = .labelColor
+        titleLabel.contentTintColor = .labelColor
+        titleLabel.target = self
+        titleLabel.action = #selector(titleTapped)
+        titleLabel.wantsLayer = true
+        titleLabel.layer?.cornerRadius = 6
+        titleLabel.restingBackground = nil
 
         // Separator 1
         let sep1 = NSBox(frame: .zero)
@@ -212,6 +220,10 @@ class ToolbarWindow: NSPanel {
         NotificationCenter.default.post(name: .beginWindowSelection, object: nil)
     }
 
+    @objc private func titleTapped() {
+        AboutWindow.shared.showAbout()
+    }
+
     @objc private func dropdownTapped(_ sender: NSButton) {
         guard let sm = sessionManager else { return }
         let menu = NSMenu()
@@ -226,6 +238,7 @@ class ToolbarWindow: NSPanel {
                 dims = "awaiting selection"
             }
 
+            // Session entry — click to select
             let item = NSMenuItem(title: "\(prefix) · \(dims)", action: #selector(selectSession(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = tracked.sessionID
@@ -243,7 +256,22 @@ class ToolbarWindow: NSPanel {
                 item.state = .on
             }
 
+            // Submenu with Stop action for this session
+            let submenu = NSMenu()
+            let stopItem = NSMenuItem(title: "Stop Session", action: #selector(stopSession(_:)), keyEquivalent: "")
+            stopItem.target = self
+            stopItem.representedObject = tracked.sessionID
+            submenu.addItem(stopItem)
+            item.submenu = submenu
+
             menu.addItem(item)
+        }
+
+        if sm.sessions.count > 1 {
+            menu.addItem(.separator())
+            let stopAll = NSMenuItem(title: "Stop All Sessions", action: #selector(stopAllSessions), keyEquivalent: "")
+            stopAll.target = self
+            menu.addItem(stopAll)
         }
 
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
@@ -253,6 +281,15 @@ class ToolbarWindow: NSPanel {
         guard let sid = sender.representedObject as? String else { return }
         sessionManager?.selectedSessionID = sid
         refreshDropdown()
+    }
+
+    @objc private func stopSession(_ sender: NSMenuItem) {
+        guard let sid = sender.representedObject as? String else { return }
+        sessionManager?.stopSession(id: sid)
+    }
+
+    @objc private func stopAllSessions() {
+        sessionManager?.stopAllSessions()
     }
 }
 

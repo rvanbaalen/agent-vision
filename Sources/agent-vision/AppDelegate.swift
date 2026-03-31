@@ -18,9 +18,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { NSApp.terminate(nil) }
         }
 
-        // Set up menu bar
-        setupMenuBar()
-
         // Create and show toolbar
         NSLog("[agent-vision] Creating toolbar window")
         toolbarWindow = ToolbarWindow()
@@ -57,7 +54,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         sessionManager.onSessionsChanged = { [weak self] in
             self?.toolbarWindow.refreshDropdown()
             self?.sessionManager.refreshBorderLabels()
-            self?.rebuildSessionMenu()
         }
         sessionManager.onActionFeedback = { [weak self] action, area in
             self?.showActionFeedback(action: action, area: area)
