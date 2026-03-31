@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/rvanbaalen/agent-vision/compare/v0.3.2...v0.3.3) (2026-03-31)
+
+
+### Bug Fixes
+
+* check specific window is frontmost, not just app — handles multiple windows from same app ([23e530f](https://github.com/rvanbaalen/agent-vision/commit/23e530fdf35c2b092b04d5e6807fb2e99d089ef3))
+
 ## [0.3.2](https://github.com/rvanbaalen/agent-vision/compare/v0.3.1...v0.3.2) (2026-03-31)
 
 
