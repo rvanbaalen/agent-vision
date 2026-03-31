@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/rvanbaalen/agent-vision/compare/v0.3.3...v0.3.4) (2026-03-31)
+
+
+### Bug Fixes
+
+* replace broken polling focus check with simple synchronous gate — refuse immediately if wrong window ([03d2331](https://github.com/rvanbaalen/agent-vision/commit/03d23313e9ff7b8c151c8f9420cddc919e913b10))
+
 ## [0.3.3](https://github.com/rvanbaalen/agent-vision/compare/v0.3.2...v0.3.3) (2026-03-31)
 
 
