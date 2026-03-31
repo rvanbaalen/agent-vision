@@ -8,62 +8,124 @@ struct AgentVision: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "agent-vision",
         abstract: "Give AI agents eyes on your screen",
-        subcommands: [Start.self, Wait.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self, SkillInfo.self]
+        subcommands: [Start.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self, SkillInfo.self]
     )
 
     @Flag(name: .long, help: .hidden)
     var gui: Bool = false
 
-    @Option(name: .long, help: .hidden)
-    var session: String?
-
     mutating func run() throws {
         if gui {
-            guard let sid = session else {
-                fputs("Usage: agent-vision --gui --session <uuid>\n", stderr)
-                throw ExitCode.failure
-            }
-            startGUI(sessionID: sid)
+            startGUI()
             // startGUI never returns — it calls NSApp.run()
         }
-        // If no subcommand and no --gui, show help
         throw CleanExit.helpRequest()
     }
 }
 
 struct Start: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Launch the toolbar GUI and create a new session")
+    static let configuration = CommandConfiguration(abstract: "Start a session — launches GUI if needed, waits for area selection")
+
+    @Option(name: .long, help: "Timeout in seconds (default: 60)")
+    var timeout: Int = 60
 
     func run() throws {
-        // Non-blocking update check (2s timeout, silent on failure)
         checkForUpdate(owner: "rvanbaalen", repo: "agent-vision")
-
         Config.cleanStaleSessions()
 
         let sessionID = UUID().uuidString.lowercased()
         let sessionDir = Config.sessionDirectory(for: sessionID)
 
-        let state = AppState(pid: ProcessInfo.processInfo.processIdentifier, area: nil)
+        // Determine next color index from existing sessions
+        let existingColors = (try? existingSessionColorIndices()) ?? []
+        let colorIndex = SessionColors.nextColorIndex(existing: existingColors)
+
+        let guiPid = readGuiPid()
+        let guiAlive = guiPid != nil && StateFile.isProcessRunning(pid: guiPid!)
+
+        // Write session state BEFORE spawning GUI so GUI can discover it
+        let state = AppState(pid: guiPid ?? ProcessInfo.processInfo.processIdentifier, area: nil, colorIndex: colorIndex)
         try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: sessionDir)
 
-        // Spawn self in GUI mode as a background process
-        var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-        var size = UInt32(MAXPATHLEN)
-        guard _NSGetExecutablePath(&pathBuffer, &size) == 0 else {
-            throw ValidationError("Cannot determine executable path.")
+        if !guiAlive {
+            let pid = try spawnGUI()
+            writeGuiPid(pid)
+            // Update session state with actual GUI PID
+            let updatedState = AppState(pid: pid, area: nil, colorIndex: colorIndex)
+            try StateFile.write(updatedState, to: Config.stateFilePath(for: sessionID), createDirectory: sessionDir)
         }
-        let selfPath = String(cString: pathBuffer)
-        let selfURL = URL(fileURLWithPath: selfPath).resolvingSymlinksInPath()
 
-        let process = Process()
-        process.executableURL = selfURL
-        process.arguments = ["--gui", "--session", sessionID]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try process.run()
+        // Block until area is selected (merged from old Wait command)
+        let statePath = Config.stateFilePath(for: sessionID)
+        let deadline = Date().addingTimeInterval(TimeInterval(timeout))
 
-        print(sessionID)
+        while Date() < deadline {
+            guard let currentState = try StateFile.read(from: statePath) else {
+                fputs("Session disappeared unexpectedly.\n", stderr)
+                throw ExitCode.failure
+            }
+
+            if let area = currentState.area {
+                print(sessionID)
+                print("Area selected: \(Int(area.width))x\(Int(area.height)) at (\(Int(area.x)), \(Int(area.y)))")
+                return
+            }
+
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+
+        fputs("No area selected within \(timeout)s\n", stderr)
+        // Clean up the session we created since it was never used
+        try? FileManager.default.removeItem(at: sessionDir)
+        throw ExitCode.failure
     }
+}
+
+// MARK: - GUI PID file helpers
+
+func readGuiPid() -> Int32? {
+    guard let data = try? Data(contentsOf: Config.guiPidFilePath),
+          let str = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          let pid = Int32(str) else { return nil }
+    return pid
+}
+
+func writeGuiPid(_ pid: Int32) {
+    try? FileManager.default.createDirectory(at: Config.stateDirectory, withIntermediateDirectories: true)
+    try? "\(pid)\n".data(using: .utf8)?.write(to: Config.guiPidFilePath, options: .atomic)
+}
+
+func existingSessionColorIndices() throws -> [Int] {
+    let fm = FileManager.default
+    guard let entries = try? fm.contentsOfDirectory(at: Config.sessionsDirectory, includingPropertiesForKeys: nil) else {
+        return []
+    }
+    var indices: [Int] = []
+    for entry in entries {
+        let statePath = entry.appendingPathComponent("state.json")
+        if let state = try? StateFile.read(from: statePath) {
+            indices.append(state.colorIndex)
+        }
+    }
+    return indices
+}
+
+func spawnGUI() throws -> Int32 {
+    var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+    var size = UInt32(MAXPATHLEN)
+    guard _NSGetExecutablePath(&pathBuffer, &size) == 0 else {
+        throw ValidationError("Cannot determine executable path.")
+    }
+    let selfPath = String(cString: pathBuffer)
+    let selfURL = URL(fileURLWithPath: selfPath).resolvingSymlinksInPath()
+
+    let process = Process()
+    process.executableURL = selfURL
+    process.arguments = ["--gui"]
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    try process.run()
+    return process.processIdentifier
 }
 
 struct Stop: ParsableCommand {
@@ -74,50 +136,9 @@ struct Stop: ParsableCommand {
 
     func run() throws {
         try validateSession(session)
-
-        let statePath = Config.stateFilePath(for: session)
-        if let state = try StateFile.read(from: statePath),
-           StateFile.isProcessRunning(pid: state.pid) {
-            kill(state.pid, SIGTERM)
-        }
-
-        // Remove entire session directory
+        // Just remove session directory — GUI detects removal via polling
         try? FileManager.default.removeItem(at: Config.sessionDirectory(for: session))
         print("Session stopped.")
-    }
-}
-
-struct Wait: ParsableCommand {
-    static let configuration = CommandConfiguration(abstract: "Wait for area selection")
-
-    @Option(name: .long, help: "Session ID")
-    var session: String
-
-    @Option(name: .long, help: "Timeout in seconds (default: 60)")
-    var timeout: Int = 60
-
-    func run() throws {
-        try validateSession(session)
-        let statePath = Config.stateFilePath(for: session)
-        let deadline = Date().addingTimeInterval(TimeInterval(timeout))
-
-        while Date() < deadline {
-            guard let state = try StateFile.read(from: statePath),
-                  StateFile.isProcessRunning(pid: state.pid) else {
-                fputs("Session is not running. Use 'agent-vision start' first.\n", stderr)
-                throw ExitCode.failure
-            }
-
-            if let area = state.area {
-                print("Area selected: \(Int(area.width))x\(Int(area.height)) at (\(Int(area.x)), \(Int(area.y)))")
-                return
-            }
-
-            Thread.sleep(forTimeInterval: 0.5)
-        }
-
-        fputs("No area selected within \(timeout)s\n", stderr)
-        throw ExitCode.failure
     }
 }
 
