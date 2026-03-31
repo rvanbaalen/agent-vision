@@ -221,7 +221,8 @@ class ActionWatcher {
                 let rect = CGRect(x: capturedArea.x, y: capturedArea.y, width: capturedArea.width, height: capturedArea.height)
                 var ocrElements: [DiscoveredElement] = []
                 NSLog("[agent-vision] Starting OCR text discovery")
-                if let image = CGWindowListCreateImage(rect, .optionOnScreenOnly, kCGNullWindowID, .bestResolution) {
+                do {
+                    let image = try captureScreenRect(rect)
                     ocrElements = TextDiscovery.discover(
                         image: image,
                         areaWidth: capturedArea.width,
@@ -230,8 +231,8 @@ class ActionWatcher {
                         startIndex: axElements.count + 1
                     )
                     NSLog("[agent-vision] OCR found \(ocrElements.count) text elements")
-                } else {
-                    NSLog("[agent-vision] WARNING: CGWindowListCreateImage returned nil — screen capture failed")
+                } catch {
+                    NSLog("[agent-vision] WARNING: Screen capture failed — \(error)")
                 }
 
                 let allElements = axElements + ocrElements

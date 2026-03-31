@@ -58,14 +58,17 @@ class FeedbackView: NSView {
         rippleProgress = 0
 
         animationTimer?.invalidate()
-        animationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
-            guard let self = self else { timer.invalidate(); return }
-            self.rippleProgress += 1.0 / 15.0
-            if self.rippleProgress >= 1.0 {
-                timer.invalidate()
-                self.rippleCenter = nil
+        animationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self = self else { return }
+                self.rippleProgress += 1.0 / 15.0
+                if self.rippleProgress >= 1.0 {
+                    self.animationTimer?.invalidate()
+                    self.animationTimer = nil
+                    self.rippleCenter = nil
+                }
+                self.needsDisplay = true
             }
-            self.needsDisplay = true
         }
     }
 

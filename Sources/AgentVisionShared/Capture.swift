@@ -3,11 +3,13 @@ import CoreGraphics
 import CoreText
 import ImageIO
 import UniformTypeIdentifiers
+import ScreenCaptureKit
 
 public enum CaptureError: Error, CustomStringConvertible {
     case captureFailedNoImage
     case cannotCreateDestination(String)
     case writeFailed(String)
+    case noDisplayFound
 
     public var description: String {
         switch self {
@@ -17,23 +19,77 @@ public enum CaptureError: Error, CustomStringConvertible {
             return "Cannot create image file at \(path)"
         case .writeFailed(let path):
             return "Failed to write image to \(path)"
+        case .noDisplayFound:
+            return "No display found for capture area."
         }
     }
+}
+
+/// Captures a screen region using ScreenCaptureKit. Returns a CGImage at native (Retina) resolution.
+public func captureScreenRect(_ rect: CGRect) throws -> CGImage {
+    let semaphore = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var capturedImage: CGImage?
+    nonisolated(unsafe) var capturedError: Error?
+
+    Task {
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+
+            // Find the display that contains the capture rect
+            guard let display = content.displays.first(where: { display in
+                let displayRect = CGRect(x: CGFloat(display.frame.origin.x),
+                                         y: CGFloat(display.frame.origin.y),
+                                         width: CGFloat(display.width),
+                                         height: CGFloat(display.height))
+                return displayRect.intersects(rect)
+            }) ?? content.displays.first else {
+                capturedError = CaptureError.noDisplayFound
+                semaphore.signal()
+                return
+            }
+
+            let filter = SCContentFilter(display: display, excludingWindows: [])
+            let config = SCStreamConfiguration()
+
+            // sourceRect is in display-local coordinates
+            let displayOrigin = display.frame.origin
+            config.sourceRect = CGRect(
+                x: rect.origin.x - displayOrigin.x,
+                y: rect.origin.y - displayOrigin.y,
+                width: rect.width,
+                height: rect.height
+            )
+
+            // Output at native Retina resolution
+            let scaleFactor = max(Int(display.frame.width) > 0 ? CGFloat(display.width) / display.frame.width : 2.0, 1.0)
+            config.width = Int(rect.width * scaleFactor)
+            config.height = Int(rect.height * scaleFactor)
+            config.scalesToFit = false
+            config.showsCursor = false
+            config.capturesShadowsOnly = false
+
+            capturedImage = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        } catch {
+            capturedError = error
+        }
+        semaphore.signal()
+    }
+
+    semaphore.wait()
+
+    if let error = capturedError {
+        throw error
+    }
+    guard let image = capturedImage else {
+        throw CaptureError.captureFailedNoImage
+    }
+    return image
 }
 
 public enum ScreenCapture {
     public static func capture(area: CaptureArea, to outputURL: URL) throws {
         let rect = CGRect(x: area.x, y: area.y, width: area.width, height: area.height)
-
-        guard let image = CGWindowListCreateImage(
-            rect,
-            .optionOnScreenOnly,
-            kCGNullWindowID,
-            .bestResolution
-        ) else {
-            throw CaptureError.captureFailedNoImage
-        }
-
+        let image = try captureScreenRect(rect)
         try saveImage(image, to: outputURL)
     }
 
@@ -41,12 +97,7 @@ public enum ScreenCapture {
     /// Crosshairs are labeled with area-relative screen-point coordinates (matching `control click --at`).
     public static func captureWithCalibration(area: CaptureArea, to outputURL: URL) throws {
         let rect = CGRect(x: area.x, y: area.y, width: area.width, height: area.height)
-
-        guard let image = CGWindowListCreateImage(
-            rect, .optionOnScreenOnly, kCGNullWindowID, .bestResolution
-        ) else {
-            throw CaptureError.captureFailedNoImage
-        }
+        let image = try captureScreenRect(rect)
 
         let pw = image.width   // pixel width (e.g. 1600 on Retina)
         let ph = image.height
@@ -112,12 +163,7 @@ public enum ScreenCapture {
     /// Input coordinates are in screen points (area-relative), same as `control click --at`.
     public static func captureWithPreview(area: CaptureArea, at point: (x: Int, y: Int), to outputURL: URL) throws {
         let rect = CGRect(x: area.x, y: area.y, width: area.width, height: area.height)
-
-        guard let image = CGWindowListCreateImage(
-            rect, .optionOnScreenOnly, kCGNullWindowID, .bestResolution
-        ) else {
-            throw CaptureError.captureFailedNoImage
-        }
+        let image = try captureScreenRect(rect)
 
         let pw = image.width
         let ph = image.height
@@ -175,12 +221,7 @@ public enum ScreenCapture {
     /// Capture with numbered badges overlaid on discovered elements.
     public static func captureWithElements(area: CaptureArea, elements: [DiscoveredElement], to outputURL: URL) throws {
         let rect = CGRect(x: area.x, y: area.y, width: area.width, height: area.height)
-
-        guard let image = CGWindowListCreateImage(
-            rect, .optionOnScreenOnly, kCGNullWindowID, .bestResolution
-        ) else {
-            throw CaptureError.captureFailedNoImage
-        }
+        let image = try captureScreenRect(rect)
 
         let pw = image.width
         let ph = image.height

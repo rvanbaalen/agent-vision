@@ -16,8 +16,9 @@ struct AgentVision: ParsableCommand {
 
     mutating func run() throws {
         if gui {
-            startGUI()
-            // startGUI never returns — it calls NSApp.run()
+            MainActor.assumeIsolated {
+                startGUI()
+            }
         }
         throw CleanExit.helpRequest()
     }
@@ -116,7 +117,7 @@ func spawnGUI() throws -> Int32 {
     guard _NSGetExecutablePath(&pathBuffer, &size) == 0 else {
         throw ValidationError("Cannot determine executable path.")
     }
-    let selfPath = String(cString: pathBuffer)
+    let selfPath = String(decoding: pathBuffer.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }, as: UTF8.self)
     let selfURL = URL(fileURLWithPath: selfPath).resolvingSymlinksInPath()
 
     let process = Process()

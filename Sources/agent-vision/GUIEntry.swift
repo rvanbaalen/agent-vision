@@ -2,6 +2,7 @@ import AppKit
 import AgentVisionShared
 
 /// Starts the AppKit GUI event loop. This function never returns.
+@MainActor
 func startGUI() -> Never {
     NSLog("[agent-vision] App starting in GUI mode")
 
@@ -25,10 +26,8 @@ func startGUI() -> Never {
     let app = NSApplication.shared
     app.setActivationPolicy(.regular)
 
-    MainActor.assumeIsolated {
-        let delegate = AppDelegate()
-        app.delegate = delegate
-    }
+    let delegate = AppDelegate()
+    app.delegate = delegate
 
     NSLog("[agent-vision] Running app loop")
     app.run()
