@@ -253,6 +253,12 @@ class ActionWatcher {
             return
         }
 
+        // CGEvent-based actions require the target window to be frontmost.
+        // Activate the monitored window's app before sending events.
+        if let windowNum = area.windowNumber {
+            ensureWindowFocused(windowNumber: windowNum)
+        }
+
         // CGEvent-based actions are fast — keep on main thread
         do {
             let absoluteAction = action.toAbsolute(area: area)
@@ -274,6 +280,26 @@ class ActionWatcher {
             NSLog("[agent-vision] WARNING: Action took \(String(format: "%.2f", elapsed))s (>0.5s) — may cause UI lag")
         }
         isProcessingAction = false
+    }
+
+    /// Bring the monitored window's app to front before sending CGEvent actions.
+    private func ensureWindowFocused(windowNumber: UInt32) {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return }
+
+        for info in list {
+            guard let num = info[kCGWindowNumber as String] as? UInt32,
+                  num == windowNumber,
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t else { continue }
+
+            if let app = NSRunningApplication(processIdentifier: pid),
+               !app.isActive {
+                NSLog("[agent-vision] Activating \(app.localizedName ?? "app") (PID \(pid)) before CGEvent action")
+                app.activate()
+                // Brief pause to let the window manager bring the window to front
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            return
+        }
     }
 
     /// Track PIDs we've already signaled for enhanced accessibility.
