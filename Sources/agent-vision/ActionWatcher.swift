@@ -255,7 +255,8 @@ class ActionWatcher {
 
         // CGEvent actions go to the focused window. If the monitored window's
         // app isn't frontmost, wait until the user brings it back to focus.
-        if let windowNum = area.windowNumber {
+        let windowNum = area.windowNumber ?? findWindowNumber(at: area)
+        if let windowNum {
             let waitResult = waitForWindowFocus(windowNumber: windowNum, timeout: 30)
             if !waitResult.focused {
                 let result = ActionResult(success: false, message: "Timed out waiting for \(waitResult.appName) to regain focus. Switch to that window and retry.")
@@ -286,6 +287,34 @@ class ActionWatcher {
             NSLog("[agent-vision] WARNING: Action took \(String(format: "%.2f", elapsed))s (>0.5s) — may cause UI lag")
         }
         isProcessingAction = false
+    }
+
+    /// Finds the window number of the topmost window covering the capture area.
+    /// Used as fallback when the area was drag-selected (no stored windowNumber).
+    private func findWindowNumber(at area: CaptureArea) -> UInt32? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+
+        let areaCenter = CGPoint(x: area.x + area.width / 2, y: area.y + area.height / 2)
+        let myPID = ProcessInfo.processInfo.processIdentifier
+
+        for info in list {
+            guard let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t,
+                  let windowNum = info[kCGWindowNumber as String] as? UInt32,
+                  let wx = boundsDict["X"] as? CGFloat,
+                  let wy = boundsDict["Y"] as? CGFloat,
+                  let ww = boundsDict["Width"] as? CGFloat,
+                  let wh = boundsDict["Height"] as? CGFloat else { continue }
+
+            if pid == myPID { continue }
+            if let layer = info[kCGWindowLayer as String] as? Int, layer != 0 { continue }
+
+            let frame = CGRect(x: wx, y: wy, width: ww, height: wh)
+            if frame.contains(areaCenter) {
+                return windowNum
+            }
+        }
+        return nil
     }
 
     /// Polls until the monitored window's app is frontmost, or timeout.
