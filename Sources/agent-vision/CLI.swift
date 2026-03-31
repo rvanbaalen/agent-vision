@@ -56,9 +56,11 @@ struct Start: ParsableCommand {
             try StateFile.write(updatedState, to: Config.stateFilePath(for: sessionID), createDirectory: sessionDir)
         }
 
-        // Block until area is selected (merged from old Wait command)
+        // Block until area is selected
         let statePath = Config.stateFilePath(for: sessionID)
         let deadline = Date().addingTimeInterval(TimeInterval(timeout))
+
+        fputs("Waiting for area selection — click \"Select Area\" or \"Select Window\" on the toolbar...\n", stderr)
 
         while Date() < deadline {
             guard let currentState = try StateFile.read(from: statePath) else {
