@@ -253,43 +253,51 @@ class ActionWatcher {
             return
         }
 
-        // CGEvent actions go to the focused window. If the monitored window's
-        // app isn't frontmost, wait until the user brings it back to focus.
-        let windowNum = area.windowNumber ?? findWindowNumber(at: area)
-        if let windowNum {
-            let waitResult = waitForWindowFocus(windowNumber: windowNum, timeout: 30)
-            if !waitResult.focused {
-                let result = ActionResult(success: false, message: "Timed out waiting for \(waitResult.appName) to regain focus. Switch to that window and retry.")
-                try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
-                isProcessingAction = false
-                return
+        // CGEvent actions go to the focused window. Run focus-await + execution
+        // on a background thread to avoid blocking the GUI run loop.
+        let capturedArea = area
+        let capturedAction = action
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Wait for the monitored window to have focus
+            let windowNum = capturedArea.windowNumber ?? self?.findWindowNumber(at: capturedArea)
+            if let windowNum, let self {
+                let waitResult = self.waitForWindowFocus(windowNumber: windowNum, timeout: 30)
+                if !waitResult.focused {
+                    let result = ActionResult(success: false, message: "Timed out waiting for \(waitResult.appName) to regain focus. Switch to that window and retry.")
+                    try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
+                    DispatchQueue.main.async { [weak self] in self?.isProcessingAction = false }
+                    return
+                }
             }
+
+            // Execute the CGEvent action
+            do {
+                let absoluteAction = capturedAction.toAbsolute(area: capturedArea)
+                let message = try self?.executeAction(absoluteAction, original: capturedAction) ?? "Action executed"
+                NSLog("[agent-vision] Action executed: \(message)")
+
+                DispatchQueue.main.async { [weak self] in
+                    self?.onFeedback?(capturedAction, capturedArea)
+                }
+
+                let result = ActionResult(success: true, message: message)
+                try ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
+            } catch {
+                NSLog("[agent-vision] Action FAILED with error: \(error)")
+                let result = ActionResult(success: false, message: "Error: \(error)")
+                try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
+            }
+
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            if elapsed > 0.5 {
+                NSLog("[agent-vision] WARNING: Action took \(String(format: "%.2f", elapsed))s")
+            }
+            DispatchQueue.main.async { [weak self] in self?.isProcessingAction = false }
         }
-
-        // CGEvent-based actions are fast — keep on main thread
-        do {
-            let absoluteAction = action.toAbsolute(area: area)
-            let message = try executeAction(absoluteAction, original: action)
-            NSLog("[agent-vision] Action executed: \(message)")
-
-            onFeedback?(action, area)
-
-            let result = ActionResult(success: true, message: message)
-            try ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
-        } catch {
-            NSLog("[agent-vision] Action FAILED with error: \(error)")
-            let result = ActionResult(success: false, message: "Error: \(error)")
-            try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
-        }
-
-        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-        if elapsed > 0.5 {
-            NSLog("[agent-vision] WARNING: Action took \(String(format: "%.2f", elapsed))s (>0.5s) — may cause UI lag")
-        }
-        isProcessingAction = false
     }
 
     /// Finds the window number of the topmost window covering the capture area.
+    nonisolated
     /// Used as fallback when the area was drag-selected (no stored windowNumber).
     private func findWindowNumber(at area: CaptureArea) -> UInt32? {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
@@ -318,6 +326,7 @@ class ActionWatcher {
     }
 
     /// Polls until the monitored window's app is frontmost, or timeout.
+    nonisolated
     /// Returns whether focus was obtained and the app name for error messages.
     private func waitForWindowFocus(windowNumber: UInt32, timeout: TimeInterval) -> (focused: Bool, appName: String) {
         let deadline = Date().addingTimeInterval(timeout)
@@ -360,7 +369,7 @@ class ActionWatcher {
     /// Track PIDs we've already signaled for enhanced accessibility.
     private var enhancedUIPIDs: Set<pid_t> = []
 
-    private func executeAction(_ action: ActionRequest, original: ActionRequest) throws -> String {
+    private nonisolated func executeAction(_ action: ActionRequest, original: ActionRequest) throws -> String {
         let source = CGEventSource(stateID: .hidSystemState)
 
         switch action {
