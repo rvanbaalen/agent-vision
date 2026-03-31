@@ -185,9 +185,13 @@ struct Focus: ParsableCommand {
 
         fputs("Waiting for \(owner) to have keyboard focus...\n", stderr)
 
-        let deadline = Date().addingTimeInterval(TimeInterval(timeout))
+        // Exponential backoff: 0.5s, 1s, 2s, 4s, 8s, 8s, 8s, ...
+        var delay: TimeInterval = 0.5
+        let maxDelay: TimeInterval = 8
+        let maxRetries = 20
+        var attempt = 0
 
-        while Date() < deadline {
+        while attempt < maxRetries {
             if isWindowFocused(area: area) {
                 // First check passed — wait 5 seconds and confirm focus is stable
                 fputs("\(owner) has focus — confirming (5s)...\n", stderr)
@@ -197,12 +201,16 @@ struct Focus: ParsableCommand {
                     print("Focus confirmed on \(owner).")
                     return
                 }
-                fputs("Focus lost during confirmation. Still waiting...\n", stderr)
+                fputs("Focus lost during confirmation. Retrying...\n", stderr)
+                delay = 0.5 // Reset backoff after a near-success
             }
-            Thread.sleep(forTimeInterval: 0.5)
+
+            Thread.sleep(forTimeInterval: delay)
+            delay = min(delay * 2, maxDelay)
+            attempt += 1
         }
 
-        fputs("Timed out waiting for \(owner) to have focus.\n", stderr)
+        fputs("Gave up waiting for \(owner) to have focus after \(maxRetries) attempts.\n", stderr)
         throw ExitCode.failure
     }
 
