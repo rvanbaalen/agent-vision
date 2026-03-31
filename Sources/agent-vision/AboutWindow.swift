@@ -58,25 +58,50 @@ class AboutWindow {
         authorLabel.textColor = .secondaryLabelColor
         content.addSubview(authorLabel)
 
-        // Website link
-        let linkButton = NSButton(frame: NSRect(x: 50, y: 122, width: 200, height: 20))
-        linkButton.title = "robinvanbaalen.nl/agent-vision"
-        linkButton.bezelStyle = .inline
-        linkButton.isBordered = false
-        linkButton.font = .systemFont(ofSize: 12)
-        linkButton.contentTintColor = .linkColor
-        linkButton.target = self
-        linkButton.action = #selector(openWebsite)
-        content.addSubview(linkButton)
+        // Website
+        let websiteLabel = NSTextField(labelWithString: "Website")
+        websiteLabel.frame = NSRect(x: 0, y: 138, width: 300, height: 14)
+        websiteLabel.alignment = .center
+        websiteLabel.font = .systemFont(ofSize: 10, weight: .medium)
+        websiteLabel.textColor = .tertiaryLabelColor
+        content.addSubview(websiteLabel)
+
+        let websiteButton = NSButton(frame: NSRect(x: 25, y: 118, width: 250, height: 18))
+        websiteButton.title = "robinvanbaalen.nl/projects/agent-vision"
+        websiteButton.bezelStyle = .inline
+        websiteButton.isBordered = false
+        websiteButton.font = .systemFont(ofSize: 12)
+        websiteButton.contentTintColor = .linkColor
+        websiteButton.target = self
+        websiteButton.action = #selector(openWebsite)
+        content.addSubview(websiteButton)
+
+        // Repository
+        let repoLabel = NSTextField(labelWithString: "Repository")
+        repoLabel.frame = NSRect(x: 0, y: 96, width: 300, height: 14)
+        repoLabel.alignment = .center
+        repoLabel.font = .systemFont(ofSize: 10, weight: .medium)
+        repoLabel.textColor = .tertiaryLabelColor
+        content.addSubview(repoLabel)
+
+        let repoButton = NSButton(frame: NSRect(x: 25, y: 76, width: 250, height: 18))
+        repoButton.title = "github.com/rvanbaalen/agent-vision"
+        repoButton.bezelStyle = .inline
+        repoButton.isBordered = false
+        repoButton.font = .systemFont(ofSize: 12)
+        repoButton.contentTintColor = .linkColor
+        repoButton.target = self
+        repoButton.action = #selector(openRepo)
+        content.addSubview(repoButton)
 
         // Separator
-        let separator = NSBox(frame: NSRect(x: 20, y: 108, width: 260, height: 1))
+        let separator = NSBox(frame: NSRect(x: 20, y: 64, width: 260, height: 1))
         separator.boxType = .separator
         content.addSubview(separator)
 
         // Update status
         let updateStatus = NSTextField(labelWithString: "Checking for updates…")
-        updateStatus.frame = NSRect(x: 0, y: 78, width: 300, height: 18)
+        updateStatus.frame = NSRect(x: 0, y: 38, width: 300, height: 18)
         updateStatus.alignment = .center
         updateStatus.font = .systemFont(ofSize: 11)
         updateStatus.textColor = .secondaryLabelColor
@@ -152,7 +177,13 @@ class AboutWindow {
     }
 
     @objc private func openWebsite() {
-        if let url = URL(string: "https://robinvanbaalen.nl/agent-vision") {
+        if let url = URL(string: "https://robinvanbaalen.nl/projects/agent-vision/") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    @objc private func openRepo() {
+        if let url = URL(string: "https://github.com/rvanbaalen/agent-vision") {
             NSWorkspace.shared.open(url)
         }
     }
