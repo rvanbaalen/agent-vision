@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.2](https://github.com/rvanbaalen/agent-vision/compare/v0.3.1...v0.3.2) (2026-03-31)
+
+
+### Bug Fixes
+
+* add release-please version marker to Version.swift so brew builds get correct version ([6801487](https://github.com/rvanbaalen/agent-vision/commit/6801487b9ccc07eb6001f82b4a1d34998834765d))
+* update button opens shell script via NSWorkspace instead of osascript ([8417191](https://github.com/rvanbaalen/agent-vision/commit/8417191c30ccabc682e3bf2790fa04bb81a3a59b))
+
 ## [0.3.1](https://github.com/rvanbaalen/agent-vision/compare/v0.3.0...v0.3.1) (2026-03-31)
 
 
