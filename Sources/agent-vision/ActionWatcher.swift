@@ -253,179 +253,100 @@ class ActionWatcher {
             return
         }
 
-        // CGEvent actions go to the focused window. Run focus-await + execution
-        // on a background thread to avoid blocking the GUI run loop.
-        let capturedArea = area
-        let capturedAction = action
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            // Wait for the monitored window to have focus
-            let windowNum = capturedArea.windowNumber ?? self?.findWindowNumber(at: capturedArea)
-            if let windowNum, let self {
-                let waitResult = self.waitForWindowFocus(windowNumber: windowNum, timeout: 30)
-                if !waitResult.focused {
-                    let result = ActionResult(success: false, message: "Timed out waiting for \(waitResult.appName) to regain focus. Switch to that window and retry.")
-                    try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
-                    DispatchQueue.main.async { [weak self] in self?.isProcessingAction = false }
-                    return
-                }
-            }
-
-            // Execute the CGEvent action
-            do {
-                let absoluteAction = capturedAction.toAbsolute(area: capturedArea)
-                let message = try self?.executeAction(absoluteAction, original: capturedAction) ?? "Action executed"
-                NSLog("[agent-vision] Action executed: \(message)")
-
-                DispatchQueue.main.async { [weak self] in
-                    self?.onFeedback?(capturedAction, capturedArea)
-                }
-
-                let result = ActionResult(success: true, message: message)
-                try ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
-            } catch {
-                NSLog("[agent-vision] Action FAILED with error: \(error)")
-                let result = ActionResult(success: false, message: "Error: \(error)")
-                try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
-            }
-
-            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-            if elapsed > 0.5 {
-                NSLog("[agent-vision] WARNING: Action took \(String(format: "%.2f", elapsed))s")
-            }
-            DispatchQueue.main.async { [weak self] in self?.isProcessingAction = false }
+        // CGEvent actions go to the focused window. REFUSE if the session
+        // window is not the frontmost window. The LLM must retry.
+        if !isSessionWindowFrontmost(area: area) {
+            let owner = area.windowOwner ?? "the session window"
+            NSLog("[agent-vision] BLOCKED: \(owner) is not the frontmost window — refusing CGEvent action")
+            let result = ActionResult(success: false, message: "Error: \(owner) is not the frontmost window. Switch focus to it and retry.")
+            try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
+            isProcessingAction = false
+            return
         }
+
+        // Window is frontmost — execute the CGEvent action
+        do {
+            let absoluteAction = action.toAbsolute(area: area)
+            let message = try executeAction(absoluteAction, original: action)
+            NSLog("[agent-vision] Action executed: \(message)")
+
+            onFeedback?(action, area)
+
+            let result = ActionResult(success: true, message: message)
+            try ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
+        } catch {
+            NSLog("[agent-vision] Action FAILED with error: \(error)")
+            let result = ActionResult(success: false, message: "Error: \(error)")
+            try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
+        }
+
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        if elapsed > 0.5 {
+            NSLog("[agent-vision] WARNING: Action took \(String(format: "%.2f", elapsed))s (>0.5s)")
+        }
+        isProcessingAction = false
     }
 
-    /// Finds the window number of the topmost window covering the capture area.
-    nonisolated
-    /// Used as fallback when the area was drag-selected (no stored windowNumber).
-    private func findWindowNumber(at area: CaptureArea) -> UInt32? {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+    /// Returns true only if the session's target window is the frontmost window
+    /// at its position AND its owning app has keyboard focus.
+    /// Simple single check — no polling, no waiting. Returns false = action refused.
+    private func isSessionWindowFrontmost(area: CaptureArea) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else {
+            NSLog("[agent-vision] Focus check: CGWindowListCopyWindowInfo failed")
+            return false
+        }
 
-        let areaCenter = CGPoint(x: area.x + area.width / 2, y: area.y + area.height / 2)
         let myPID = ProcessInfo.processInfo.processIdentifier
+        let areaCenter = CGPoint(x: area.x + area.width / 2, y: area.y + area.height / 2)
+        let targetWindowNumber = area.windowNumber
 
+        // Walk front-to-back. First non-agent-vision window at the area center
+        // is what would actually receive the CGEvent.
         for info in list {
             guard let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
                   let pid = info[kCGWindowOwnerPID as String] as? pid_t,
-                  let windowNum = info[kCGWindowNumber as String] as? UInt32,
                   let wx = boundsDict["X"] as? CGFloat,
                   let wy = boundsDict["Y"] as? CGFloat,
                   let ww = boundsDict["Width"] as? CGFloat,
                   let wh = boundsDict["Height"] as? CGFloat else { continue }
 
+            // Skip our own windows (toolbar, pill overlay)
             if pid == myPID { continue }
+            // Skip non-standard window layers (menubar, dock, etc)
             if let layer = info[kCGWindowLayer as String] as? Int, layer != 0 { continue }
 
             let frame = CGRect(x: wx, y: wy, width: ww, height: wh)
             if frame.contains(areaCenter) {
-                return windowNum
+                let frontmostNum = info[kCGWindowNumber as String] as? UInt32
+                let frontmostOwner = info[kCGWindowOwnerName as String] as? String ?? "unknown"
+
+                // If we have a target window number, the frontmost window must be that exact window
+                if let targetNum = targetWindowNumber, frontmostNum != targetNum {
+                    NSLog("[agent-vision] Focus check FAILED: frontmost is \(frontmostOwner) (#\(frontmostNum ?? 0)), expected #\(targetNum)")
+                    return false
+                }
+
+                // Verify the owning app actually has keyboard focus
+                guard let app = NSRunningApplication(processIdentifier: pid), app.isActive else {
+                    NSLog("[agent-vision] Focus check FAILED: \(frontmostOwner) is on top but app is not active")
+                    return false
+                }
+
+                NSLog("[agent-vision] Focus check PASSED: \(frontmostOwner) is frontmost and active")
+                return true
             }
         }
-        return nil
-    }
 
-    /// Polls until the monitored window's app is frontmost, or timeout.
-    nonisolated
-    /// Returns whether focus was obtained and the app name for error messages.
-    /// Checks that the specific window (not just its app) is the frontmost window
-    /// at its position — handles multiple windows from the same app.
-    private func waitForWindowFocus(windowNumber: UInt32, timeout: TimeInterval) -> (focused: Bool, appName: String) {
-        let deadline = Date().addingTimeInterval(timeout)
-        var appName = "the monitored window"
-        var logged = false
-
-        while Date() < deadline {
-            guard let list = CGWindowListCopyWindowInfo(
-                [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-            ) as? [[String: Any]] else {
-                Thread.sleep(forTimeInterval: 0.5)
-                continue
-            }
-
-            // Find our target window's bounds and owner
-            var targetBounds: CGRect?
-            var targetPID: pid_t?
-            for info in list {
-                guard let num = info[kCGWindowNumber as String] as? UInt32,
-                      num == windowNumber,
-                      let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
-                      let wx = boundsDict["X"] as? CGFloat,
-                      let wy = boundsDict["Y"] as? CGFloat,
-                      let ww = boundsDict["Width"] as? CGFloat,
-                      let wh = boundsDict["Height"] as? CGFloat,
-                      let pid = info[kCGWindowOwnerPID as String] as? pid_t else { continue }
-                targetBounds = CGRect(x: wx, y: wy, width: ww, height: wh)
-                targetPID = pid
-                appName = (info[kCGWindowOwnerName as String] as? String) ?? "the monitored window"
-                break
-            }
-
-            guard let bounds = targetBounds, let pid = targetPID else {
-                // Window not found at all
-                if !logged {
-                    NSLog("[agent-vision] Waiting for \(appName) window to appear...")
-                    logged = true
-                }
-                Thread.sleep(forTimeInterval: 0.5)
-                continue
-            }
-
-            // Check if our window is the frontmost at its center position.
-            // CGWindowListCopyWindowInfo returns windows in front-to-back order,
-            // so the first window (excluding our own app) at the target position
-            // tells us what's actually on top.
-            let center = CGPoint(x: bounds.midX, y: bounds.midY)
-            let myPID = ProcessInfo.processInfo.processIdentifier
-            var targetIsFrontmost = false
-
-            for info in list {
-                guard let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
-                      let infoPID = info[kCGWindowOwnerPID as String] as? pid_t,
-                      let wx = boundsDict["X"] as? CGFloat,
-                      let wy = boundsDict["Y"] as? CGFloat,
-                      let ww = boundsDict["Width"] as? CGFloat,
-                      let wh = boundsDict["Height"] as? CGFloat else { continue }
-
-                // Skip our own windows (toolbar, pill overlay)
-                if infoPID == myPID { continue }
-                // Skip non-standard layers (menubar, dock, etc)
-                if let layer = info[kCGWindowLayer as String] as? Int, layer != 0 { continue }
-
-                let frame = CGRect(x: wx, y: wy, width: ww, height: wh)
-                if frame.contains(center) {
-                    // This is the frontmost window at the target position
-                    if let num = info[kCGWindowNumber as String] as? UInt32, num == windowNumber {
-                        targetIsFrontmost = true
-                    }
-                    break
-                }
-            }
-
-            if targetIsFrontmost {
-                // Also verify the app is active (has keyboard focus)
-                if let app = NSRunningApplication(processIdentifier: pid), app.isActive {
-                    if logged {
-                        NSLog("[agent-vision] \(appName) regained focus — resuming action")
-                    }
-                    return (focused: true, appName: appName)
-                }
-            }
-
-            if !logged {
-                NSLog("[agent-vision] Waiting for \(appName) to regain focus before executing action...")
-                logged = true
-            }
-            Thread.sleep(forTimeInterval: 0.5)
-        }
-
-        return (focused: false, appName: appName)
+        NSLog("[agent-vision] Focus check FAILED: no window found at area center")
+        return false
     }
 
     /// Track PIDs we've already signaled for enhanced accessibility.
     private var enhancedUIPIDs: Set<pid_t> = []
 
-    private nonisolated func executeAction(_ action: ActionRequest, original: ActionRequest) throws -> String {
+    private func executeAction(_ action: ActionRequest, original: ActionRequest) throws -> String {
         let source = CGEventSource(stateID: .hidSystemState)
 
         switch action {
