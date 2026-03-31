@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/rvanbaalen/agent-vision/compare/v0.2.2...v0.3.0) (2026-03-31)
+
+
+### Features
+
+* add Update button in About window that runs brew upgrade in Terminal ([4b07e2c](https://github.com/rvanbaalen/agent-vision/commit/4b07e2c10122d27331eabaa7bcf66547d8015a2c))
+
+
+### Bug Fixes
+
+* focus-await works for all CGEvent actions including drag-selected areas without windowNumber ([e3fbb8a](https://github.com/rvanbaalen/agent-vision/commit/e3fbb8a85ad185b275e3f3c60c30a3f0c9e2e309))
+
 ## [0.2.2](https://github.com/rvanbaalen/agent-vision/compare/v0.2.1...v0.2.2) (2026-03-31)
 
 
