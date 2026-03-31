@@ -79,7 +79,8 @@ class SessionManager {
             sessions[update.id]?.borderWindow?.stopTracking()
             sessions[update.id]?.borderWindow?.orderOut(nil)
             sessions[update.id]?.borderWindow = border
-            sessions[update.id]?.borderWindow?.makeKeyAndOrderFront(nil)
+            sessions[update.id]?.borderWindow?.orderFrontRegardless()
+            NSLog("[agent-vision] SessionManager: area set for \(update.id)")
             onSessionsChanged?()
         }
     }

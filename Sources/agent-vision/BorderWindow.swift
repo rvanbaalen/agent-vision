@@ -4,7 +4,7 @@ import AgentVisionShared
 /// Small colored label that floats on the title bar of the tracked window.
 class BorderWindow: NSWindow {
     private var labelField: NSTextField!
-    private var displayLink: CVDisplayLink?
+    private var trackingTimer: Timer?
     private let trackedWindowNumber: UInt32?
     private let sessionColor: NSColor
 
@@ -66,7 +66,7 @@ class BorderWindow: NSWindow {
         contentView = bg
 
         if trackedWindowNumber != nil {
-            startDisplayLink()
+            startTracking()
         }
     }
 
@@ -77,27 +77,17 @@ class BorderWindow: NSWindow {
         labelField.stringValue = newLabel
     }
 
-    // MARK: - CVDisplayLink tracking
+    // MARK: - Window position tracking
 
-    private func startDisplayLink() {
-        var link: CVDisplayLink?
-        CVDisplayLinkCreateWithActiveCGDisplays(&link)
-        guard let link else { return }
-
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        CVDisplayLinkSetOutputCallback(link, { (_, _, _, _, _, userInfo) -> CVReturn in
-            guard let userInfo else { return kCVReturnSuccess }
-            let window = Unmanaged<BorderWindow>.fromOpaque(userInfo).takeUnretainedValue()
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    window.updatePosition()
-                }
+    private func startTracking() {
+        // Use a high-frequency timer on the main run loop.
+        // 1/120s matches ProMotion refresh rate; on 60Hz displays the
+        // run loop simply coalesces the extra fires with no overhead.
+        trackingTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updatePosition()
             }
-            return kCVReturnSuccess
-        }, selfPtr)
-
-        CVDisplayLinkStart(link)
-        self.displayLink = link
+        }
     }
 
     private func updatePosition() {
@@ -137,9 +127,7 @@ class BorderWindow: NSWindow {
     }
 
     func stopTracking() {
-        if let link = displayLink {
-            CVDisplayLinkStop(link)
-            displayLink = nil
-        }
+        trackingTimer?.invalidate()
+        trackingTimer = nil
     }
 }

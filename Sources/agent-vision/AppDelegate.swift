@@ -9,6 +9,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var feedbackWindow: ActionFeedbackWindow?
     let sessionManager = SessionManager()
 
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false // Keep running even when all windows are hidden (accessory mode)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSLog("[agent-vision] applicationDidFinishLaunching")
 
