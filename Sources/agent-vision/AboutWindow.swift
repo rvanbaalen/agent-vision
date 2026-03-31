@@ -60,16 +60,17 @@ class AboutWindow {
 
         // Website
         let websiteLabel = NSTextField(labelWithString: "Website")
-        websiteLabel.frame = NSRect(x: 0, y: 138, width: 300, height: 14)
-        websiteLabel.alignment = .center
+        websiteLabel.frame = NSRect(x: 20, y: 138, width: 260, height: 14)
+        websiteLabel.alignment = .left
         websiteLabel.font = .systemFont(ofSize: 10, weight: .medium)
         websiteLabel.textColor = .tertiaryLabelColor
         content.addSubview(websiteLabel)
 
-        let websiteButton = NSButton(frame: NSRect(x: 25, y: 118, width: 250, height: 18))
+        let websiteButton = NSButton(frame: NSRect(x: 16, y: 118, width: 260, height: 18))
         websiteButton.title = "robinvanbaalen.nl/projects/agent-vision"
         websiteButton.bezelStyle = .inline
         websiteButton.isBordered = false
+        websiteButton.alignment = .left
         websiteButton.font = .systemFont(ofSize: 12)
         websiteButton.contentTintColor = .linkColor
         websiteButton.target = self
@@ -78,16 +79,17 @@ class AboutWindow {
 
         // Repository
         let repoLabel = NSTextField(labelWithString: "Repository")
-        repoLabel.frame = NSRect(x: 0, y: 96, width: 300, height: 14)
-        repoLabel.alignment = .center
+        repoLabel.frame = NSRect(x: 20, y: 96, width: 260, height: 14)
+        repoLabel.alignment = .left
         repoLabel.font = .systemFont(ofSize: 10, weight: .medium)
         repoLabel.textColor = .tertiaryLabelColor
         content.addSubview(repoLabel)
 
-        let repoButton = NSButton(frame: NSRect(x: 25, y: 76, width: 250, height: 18))
+        let repoButton = NSButton(frame: NSRect(x: 16, y: 76, width: 260, height: 18))
         repoButton.title = "github.com/rvanbaalen/agent-vision"
         repoButton.bezelStyle = .inline
         repoButton.isBordered = false
+        repoButton.alignment = .left
         repoButton.font = .systemFont(ofSize: 12)
         repoButton.contentTintColor = .linkColor
         repoButton.target = self

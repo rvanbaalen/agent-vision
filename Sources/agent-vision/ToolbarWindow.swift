@@ -199,7 +199,7 @@ class ToolbarWindow: NSPanel {
     }
 
     func showToolbar() {
-        makeKeyAndOrderFront(nil)
+        orderFrontRegardless()
     }
 
     @objc private func closeTapped() {
