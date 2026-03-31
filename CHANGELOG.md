@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/rvanbaalen/agent-vision/compare/v0.3.5...v0.4.0) (2026-03-31)
+
+
+### Features
+
+* block ALL CGEvent actions without keyboard focus, add focus command with 5s confirmation delay ([0384758](https://github.com/rvanbaalen/agent-vision/commit/0384758648f61cb7d76d7d90624f0afe0b0c46ce))
+
+
+### Bug Fixes
+
+* keyboard focus gate verified working — type and key refuse when wrong window focused ([1bfb456](https://github.com/rvanbaalen/agent-vision/commit/1bfb456ee3b715714b6003dd4b273f890fccab98))
+
 ## [0.3.5](https://github.com/rvanbaalen/agent-vision/compare/v0.3.4...v0.3.5) (2026-03-31)
 
 
