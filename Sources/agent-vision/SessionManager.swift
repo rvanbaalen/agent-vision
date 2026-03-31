@@ -145,12 +145,9 @@ class SessionManager {
         }
     }
 
-    /// Returns the label to show on the border for a session.
+    /// Returns the label to show on the pill overlay for a session.
     func borderLabel(for sessionID: String) -> String {
-        if sessions.count <= 1 {
-            return "Agent Vision"
-        }
-        return String(sessionID.prefix(8))
+        "Agent Vision · \(sessionID.prefix(8))"
     }
 
     /// Updates all border labels when session count changes.

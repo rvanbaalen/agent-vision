@@ -1,12 +1,11 @@
 import AppKit
 import AgentVisionShared
 
-/// Small colored label that floats on the title bar of the tracked window.
+/// Small colored pill label that floats on the title bar of the tracked window.
 class BorderWindow: NSWindow {
-    private var labelField: NSTextField!
+    private var pillView: PillView!
     private var trackingTimer: Timer?
     private let trackedWindowNumber: UInt32?
-    private let sessionColor: NSColor
 
     /// Inset from the window's top-right corner to avoid clipping the border radius.
     private static let insetX: CGFloat = 6
@@ -14,26 +13,18 @@ class BorderWindow: NSWindow {
 
     init(area: CaptureArea, sessionColor sc: SessionColor, sessionLabel: String) {
         self.trackedWindowNumber = area.windowNumber
-        self.sessionColor = NSColor(red: sc.red, green: sc.green, blue: sc.blue, alpha: 1)
 
-        // Measure label to size the window exactly
-        let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-        let attrs: [NSAttributedString.Key: Any] = [.font: font]
-        let textSize = (sessionLabel as NSString).size(withAttributes: attrs)
-        let paddingH: CGFloat = 8
-        let paddingV: CGFloat = 3
-        let labelWidth = textSize.width + paddingH * 2
-        let labelHeight = textSize.height + paddingV * 2
+        let color = NSColor(red: sc.red, green: sc.green, blue: sc.blue, alpha: 1)
+        let pillSize = PillView.measure(text: sessionLabel)
 
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let screenHeight = screen.frame.height
 
-        // Position at the top-right of the area, inset to avoid border radius
         let frame = NSRect(
-            x: CGFloat(area.x) + CGFloat(area.width) - labelWidth - Self.insetX,
-            y: screenHeight - CGFloat(area.y) - labelHeight - Self.insetY,
-            width: labelWidth,
-            height: labelHeight
+            x: CGFloat(area.x) + CGFloat(area.width) - pillSize.width - Self.insetX,
+            y: screenHeight - CGFloat(area.y) - pillSize.height - Self.insetY,
+            width: pillSize.width,
+            height: pillSize.height
         )
 
         super.init(
@@ -47,23 +38,10 @@ class BorderWindow: NSWindow {
         isOpaque = false
         backgroundColor = .clear
         ignoresMouseEvents = true
-        sharingType = .none
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        let bg = NSView(frame: NSRect(origin: .zero, size: frame.size))
-        bg.wantsLayer = true
-        bg.layer?.backgroundColor = sessionColor.withAlphaComponent(0.8).cgColor
-        bg.layer?.cornerRadius = (labelHeight / 2).rounded(.down)
-        bg.layer?.masksToBounds = true
-
-        labelField = NSTextField(labelWithString: sessionLabel)
-        labelField.font = font
-        labelField.textColor = .white
-        labelField.alignment = .center
-        labelField.frame = NSRect(x: 0, y: 0, width: labelWidth, height: labelHeight)
-
-        bg.addSubview(labelField)
-        contentView = bg
+        pillView = PillView(frame: NSRect(origin: .zero, size: frame.size), color: color, text: sessionLabel)
+        contentView = pillView
 
         if trackedWindowNumber != nil {
             startTracking()
@@ -74,15 +52,13 @@ class BorderWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 
     func updateLabel(_ newLabel: String) {
-        labelField.stringValue = newLabel
+        pillView.text = newLabel
+        pillView.needsDisplay = true
     }
 
     // MARK: - Window position tracking
 
     private func startTracking() {
-        // Use a high-frequency timer on the main run loop.
-        // 1/120s matches ProMotion refresh rate; on 60Hz displays the
-        // run loop simply coalesces the extra fires with no overhead.
         trackingTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.updatePosition()
@@ -105,14 +81,14 @@ class BorderWindow: NSWindow {
 
             let screen = NSScreen.main ?? NSScreen.screens[0]
             let screenHeight = screen.frame.height
-            let labelWidth = frame.width
-            let labelHeight = frame.height
+            let pillWidth = frame.width
+            let pillHeight = frame.height
 
             let newFrame = NSRect(
-                x: wx + ww - labelWidth - Self.insetX,
-                y: screenHeight - wy - labelHeight - Self.insetY,
-                width: labelWidth,
-                height: labelHeight
+                x: wx + ww - pillWidth - Self.insetX,
+                y: screenHeight - wy - pillHeight - Self.insetY,
+                width: pillWidth,
+                height: pillHeight
             )
 
             if frame != newFrame {
@@ -129,5 +105,52 @@ class BorderWindow: NSWindow {
     func stopTracking() {
         trackingTimer?.invalidate()
         trackingTimer = nil
+    }
+}
+
+/// Custom-drawn pill: colored background with centered white text.
+/// Uses CoreGraphics drawing for pixel-perfect alignment.
+class PillView: NSView {
+    let color: NSColor
+    var text: String
+
+    private static let font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+    private static let paddingH: CGFloat = 8
+    private static let paddingV: CGFloat = 3
+
+    init(frame: NSRect, color: NSColor, text: String) {
+        self.color = color
+        self.text = text
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    static func measure(text: String) -> NSSize {
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        let textSize = (text as NSString).size(withAttributes: attrs)
+        return NSSize(
+            width: ceil(textSize.width) + paddingH * 2,
+            height: ceil(textSize.height) + paddingV * 2
+        )
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        // Pill background
+        let pillPath = NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2)
+        color.withAlphaComponent(0.8).setFill()
+        pillPath.fill()
+
+        // Centered text
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: Self.font,
+            .foregroundColor: NSColor.white,
+        ]
+        let textSize = (text as NSString).size(withAttributes: attrs)
+        let textX = (bounds.width - textSize.width) / 2
+        let textY = (bounds.height - textSize.height) / 2
+        (text as NSString).draw(at: NSPoint(x: textX, y: textY), withAttributes: attrs)
     }
 }
