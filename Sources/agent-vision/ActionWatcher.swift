@@ -253,10 +253,16 @@ class ActionWatcher {
             return
         }
 
-        // CGEvent-based actions require the target window to be frontmost.
-        // Activate the monitored window's app before sending events.
+        // CGEvent actions go to the focused window. If the monitored window's
+        // app isn't frontmost, wait until the user brings it back to focus.
         if let windowNum = area.windowNumber {
-            ensureWindowFocused(windowNumber: windowNum)
+            let waitResult = waitForWindowFocus(windowNumber: windowNum, timeout: 30)
+            if !waitResult.focused {
+                let result = ActionResult(success: false, message: "Timed out waiting for \(waitResult.appName) to regain focus. Switch to that window and retry.")
+                try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
+                isProcessingAction = false
+                return
+            }
         }
 
         // CGEvent-based actions are fast — keep on main thread
@@ -282,24 +288,44 @@ class ActionWatcher {
         isProcessingAction = false
     }
 
-    /// Bring the monitored window's app to front before sending CGEvent actions.
-    private func ensureWindowFocused(windowNumber: UInt32) {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return }
+    /// Polls until the monitored window's app is frontmost, or timeout.
+    /// Returns whether focus was obtained and the app name for error messages.
+    private func waitForWindowFocus(windowNumber: UInt32, timeout: TimeInterval) -> (focused: Bool, appName: String) {
+        let deadline = Date().addingTimeInterval(timeout)
+        var appName = "the monitored window"
+        var logged = false
 
-        for info in list {
-            guard let num = info[kCGWindowNumber as String] as? UInt32,
-                  num == windowNumber,
-                  let pid = info[kCGWindowOwnerPID as String] as? pid_t else { continue }
-
-            if let app = NSRunningApplication(processIdentifier: pid),
-               !app.isActive {
-                NSLog("[agent-vision] Activating \(app.localizedName ?? "app") (PID \(pid)) before CGEvent action")
-                app.activate()
-                // Brief pause to let the window manager bring the window to front
-                Thread.sleep(forTimeInterval: 0.1)
+        while Date() < deadline {
+            guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+                Thread.sleep(forTimeInterval: 0.5)
+                continue
             }
-            return
+
+            for info in list {
+                guard let num = info[kCGWindowNumber as String] as? UInt32,
+                      num == windowNumber,
+                      let pid = info[kCGWindowOwnerPID as String] as? pid_t else { continue }
+
+                if let app = NSRunningApplication(processIdentifier: pid) {
+                    appName = app.localizedName ?? "the monitored window"
+                    if app.isActive {
+                        if logged {
+                            NSLog("[agent-vision] \(appName) regained focus — resuming action")
+                        }
+                        return (focused: true, appName: appName)
+                    }
+                }
+                break
+            }
+
+            if !logged {
+                NSLog("[agent-vision] Waiting for \(appName) to regain focus before executing action...")
+                logged = true
+            }
+            Thread.sleep(forTimeInterval: 0.5)
         }
+
+        return (focused: false, appName: appName)
     }
 
     /// Track PIDs we've already signaled for enhanced accessibility.
