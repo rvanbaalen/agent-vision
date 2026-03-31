@@ -1,3 +1,4 @@
 public enum AgentVisionVersion {
-    public static let current = "0.2.0"
+    // x-release-please-version
+    public static let current = "0.3.1"
 }

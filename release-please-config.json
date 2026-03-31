@@ -4,7 +4,10 @@
       "release-type": "simple",
       "bump-minor-pre-major": true,
       "extra-files": [
-        "Sources/AgentVisionShared/Version.swift"
+        {
+          "type": "generic",
+          "path": "Sources/AgentVisionShared/Version.swift"
+        }
       ]
     }
   }
