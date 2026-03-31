@@ -255,10 +255,16 @@ class ActionWatcher {
 
         // CGEvent actions go to the focused window. REFUSE if the session
         // window is not the frontmost window. The LLM must retry.
-        if !isSessionWindowFrontmost(area: area) {
+        let isKeyboardAction: Bool
+        switch action {
+        case .type, .key: isKeyboardAction = true
+        default: isKeyboardAction = false
+        }
+
+        if !isSessionWindowFrontmost(area: area, requireKeyboardFocus: isKeyboardAction) {
             let owner = area.windowOwner ?? "the session window"
             NSLog("[agent-vision] BLOCKED: \(owner) is not the frontmost window — refusing CGEvent action")
-            let result = ActionResult(success: false, message: "Error: \(owner) is not the frontmost window. Switch focus to it and retry.")
+            let result = ActionResult(success: false, message: "Error: \(owner) is not the focused window. Switch focus to it and retry.")
             try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
             isProcessingAction = false
             return
@@ -289,8 +295,10 @@ class ActionWatcher {
 
     /// Returns true only if the session's target window is the frontmost window
     /// at its position AND its owning app has keyboard focus.
-    /// Simple single check — no polling, no waiting. Returns false = action refused.
-    private func isSessionWindowFrontmost(area: CaptureArea) -> Bool {
+    /// When `requireKeyboardFocus` is true (for type/key actions), also verifies
+    /// the specific window has keyboard focus using the Accessibility API —
+    /// not just that the app is active (handles multiple windows from same app).
+    private func isSessionWindowFrontmost(area: CaptureArea, requireKeyboardFocus: Bool = false) -> Bool {
         guard let list = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
         ) as? [[String: Any]] else {
@@ -328,10 +336,19 @@ class ActionWatcher {
                     return false
                 }
 
-                // Verify the owning app actually has keyboard focus
+                // Verify the owning app is active
                 guard let app = NSRunningApplication(processIdentifier: pid), app.isActive else {
                     NSLog("[agent-vision] Focus check FAILED: \(frontmostOwner) is on top but app is not active")
                     return false
+                }
+
+                // For keyboard actions, also check the focused WINDOW matches our target.
+                // The app may have multiple windows — keyboard events go to the focused one.
+                if requireKeyboardFocus, targetWindowNumber != nil {
+                    if !isFocusedWindow(pid: pid, targetBounds: frame) {
+                        NSLog("[agent-vision] Focus check FAILED: \(frontmostOwner) is active but a different window has keyboard focus")
+                        return false
+                    }
                 }
 
                 NSLog("[agent-vision] Focus check PASSED: \(frontmostOwner) is frontmost and active")
@@ -341,6 +358,53 @@ class ActionWatcher {
 
         NSLog("[agent-vision] Focus check FAILED: no window found at area center")
         return false
+    }
+
+    /// Uses the Accessibility API to check if the app's focused window matches
+    /// the target window bounds. Returns true if the focused window's position
+    /// and size match (within tolerance) the target.
+    private func isFocusedWindow(pid: pid_t, targetBounds: CGRect) -> Bool {
+        let appElement = AXUIElementCreateApplication(pid)
+        var focusedWindowRef: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindowRef)
+        guard result == .success, let focusedWindow = focusedWindowRef else {
+            // Can't determine focused window — fail safe, allow the action
+            NSLog("[agent-vision] isFocusedWindow: cannot get focused window via AX API (error: \(result.rawValue))")
+            return true
+        }
+
+        let windowElement = focusedWindow as! AXUIElement
+
+        // Get focused window position
+        var positionRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(windowElement, kAXPositionAttribute as CFString, &positionRef)
+        var position = CGPoint.zero
+        if let positionRef {
+            AXValueGetValue(positionRef as! AXValue, .cgPoint, &position)
+        }
+
+        // Get focused window size
+        var sizeRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(windowElement, kAXSizeAttribute as CFString, &sizeRef)
+        var size = CGSize.zero
+        if let sizeRef {
+            AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
+        }
+
+        let focusedBounds = CGRect(origin: position, size: size)
+
+        // Compare with tolerance (windows can have slight rounding differences)
+        let tolerance: CGFloat = 5
+        let matches = abs(focusedBounds.origin.x - targetBounds.origin.x) < tolerance
+            && abs(focusedBounds.origin.y - targetBounds.origin.y) < tolerance
+            && abs(focusedBounds.width - targetBounds.width) < tolerance
+            && abs(focusedBounds.height - targetBounds.height) < tolerance
+
+        if !matches {
+            NSLog("[agent-vision] isFocusedWindow: focused window at (\(Int(focusedBounds.origin.x)),\(Int(focusedBounds.origin.y)) \(Int(focusedBounds.width))x\(Int(focusedBounds.height))) does not match target (\(Int(targetBounds.origin.x)),\(Int(targetBounds.origin.y)) \(Int(targetBounds.width))x\(Int(targetBounds.height)))")
+        }
+
+        return matches
     }
 
     /// Track PIDs we've already signaled for enhanced accessibility.
