@@ -198,12 +198,20 @@ class AboutWindow {
         updateLabel?.stringValue = "Updating…"
         updateLabel?.textColor = .secondaryLabelColor
 
-        // Run brew update && brew upgrade in Terminal so the user sees progress
-        let script = "tell application \"Terminal\" to do script \"brew update && brew upgrade agent-vision && echo '\\nDone! Restart agent-vision to use the new version.' || echo '\\nUpdate failed.'\""
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", script]
-        try? process.run()
+        // Write a temp script and open it in Terminal
+        let script = """
+        #!/bin/bash
+        echo "Updating Agent Vision..."
+        brew update && brew upgrade agent-vision
+        echo ""
+        echo "Done! Restart agent-vision to use the new version."
+        echo "Press any key to close."
+        read -n 1
+        """
+        let scriptPath = FileManager.default.temporaryDirectory.appendingPathComponent("agent-vision-update.sh")
+        try? script.write(to: scriptPath, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptPath.path)
+        NSWorkspace.shared.open(scriptPath)
     }
 
     @objc private func openWebsite() {
