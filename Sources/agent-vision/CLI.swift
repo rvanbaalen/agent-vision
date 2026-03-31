@@ -8,7 +8,7 @@ struct AgentVision: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "agent-vision",
         abstract: "Give AI agents eyes on your screen",
-        subcommands: [Start.self, ListSessions.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self, SkillInfo.self]
+        subcommands: [Start.self, ListSessions.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self, Learn.self]
     )
 
     @Flag(name: .long, help: .hidden)
@@ -560,9 +560,9 @@ struct Elements: ParsableCommand {
     }
 }
 
-struct SkillInfo: ParsableCommand {
+struct Learn: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "skill",
+        commandName: "learn",
         abstract: "Print AI agent instructions for using agent-vision"
     )
 
