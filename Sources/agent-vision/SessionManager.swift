@@ -60,18 +60,26 @@ class SessionManager {
         }
 
         // Update areas for existing sessions (detect area selection)
+        // Collect updates first to avoid mutating `sessions` while iterating it
+        var areaUpdates: [(id: String, area: CaptureArea, colorIndex: Int)] = []
         for (sid, tracked) in sessions {
             let statePath = Config.stateFilePath(for: sid)
             guard let state = try? StateFile.read(from: statePath) else { continue }
             if state.area != nil && tracked.area == nil {
-                // Area was just selected
-                sessions[sid]?.area = state.area
-                let color = SessionColors.color(forIndex: tracked.colorIndex)
-                sessions[sid]?.borderWindow?.orderOut(nil)
-                sessions[sid]?.borderWindow = BorderWindow(area: state.area!, sessionColor: color, sessionLabel: borderLabel(for: sid))
-                sessions[sid]?.borderWindow?.makeKeyAndOrderFront(nil)
-                onSessionsChanged?()
+                areaUpdates.append((id: sid, area: state.area!, colorIndex: tracked.colorIndex))
             }
+        }
+
+        // Apply updates outside the iteration
+        for update in areaUpdates {
+            let color = SessionColors.color(forIndex: update.colorIndex)
+            let label = borderLabel(for: update.id)
+            let border = BorderWindow(area: update.area, sessionColor: color, sessionLabel: label)
+            sessions[update.id]?.area = update.area
+            sessions[update.id]?.borderWindow?.orderOut(nil)
+            sessions[update.id]?.borderWindow = border
+            sessions[update.id]?.borderWindow?.makeKeyAndOrderFront(nil)
+            onSessionsChanged?()
         }
     }
 
