@@ -10,6 +10,10 @@ class ActionWatcher {
     private let sessionID: String
     private var isProcessingAction = false
 
+    /// Track PIDs we've already signaled for enhanced accessibility.
+    /// Accessed from background queues via DispatchQueue.main.sync, so marked nonisolated(unsafe).
+    nonisolated(unsafe) private var enhancedUIPIDs: Set<pid_t> = []
+
     init(sessionID: String) {
         self.sessionID = sessionID
     }
@@ -103,8 +107,7 @@ class ActionWatcher {
                     return
                 }
                 let capturedArea = area
-                nonisolated(unsafe) let wself = self
-                DispatchQueue.global(qos: .userInitiated).async { [weak wself] in
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     let actionResult: ActionResult
                     do {
                         try ElementAction.press(element: el, area: capturedArea)
@@ -119,8 +122,8 @@ class ActionWatcher {
                         NSLog("[agent-vision] WARNING: clickElement took \(String(format: "%.2f", elapsed))s")
                     }
                     try? ActionFile.writeResult(actionResult, to: resultPath, createDirectory: sessionDir)
-                    DispatchQueue.main.async { [weak wself] in
-                        wself?.isProcessingAction = false
+                    DispatchQueue.main.async { [weak self] in
+                        self?.isProcessingAction = false
                     }
                 }
             } catch {
@@ -143,8 +146,7 @@ class ActionWatcher {
                     return
                 }
                 let capturedArea = area
-                nonisolated(unsafe) let wself = self
-                DispatchQueue.global(qos: .userInitiated).async { [weak wself] in
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     let actionResult: ActionResult
                     do {
                         try ElementAction.setText(text, element: el, area: capturedArea)
@@ -159,8 +161,8 @@ class ActionWatcher {
                         NSLog("[agent-vision] WARNING: typeElement took \(String(format: "%.2f", elapsed))s")
                     }
                     try? ActionFile.writeResult(actionResult, to: resultPath, createDirectory: sessionDir)
-                    DispatchQueue.main.async { [weak wself] in
-                        wself?.isProcessingAction = false
+                    DispatchQueue.main.async { [weak self] in
+                        self?.isProcessingAction = false
                     }
                 }
             } catch {
@@ -174,8 +176,7 @@ class ActionWatcher {
             NSLog("[agent-vision] discoverElements — starting element discovery")
             let capturedArea = area
             let sid = sessionID
-            nonisolated(unsafe) let weakSelf = self
-            DispatchQueue.global(qos: .userInitiated).async { [weak weakSelf] in
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 let scanResult: ElementScanResult
                 // performElementDiscovery needs main thread for NSRunningApplication
                 // but the AX tree walk and OCR are the slow parts — we handle the
@@ -201,7 +202,7 @@ class ActionWatcher {
                     )
                     var needsBrowserWait = false
                     DispatchQueue.main.sync {
-                        if let s = weakSelf, !s.enhancedUIPIDs.contains(p) {
+                        if let s = self, !s.enhancedUIPIDs.contains(p) {
                             s.enhancedUIPIDs.insert(p)
                             let isBrowser = ["com.google.Chrome", "com.apple.Safari",
                                              "company.thebrowser.Browser", "org.mozilla.firefox",
@@ -257,8 +258,8 @@ class ActionWatcher {
                 let result = ActionResult(success: true, message: "Discovered \(scanResult.elementCount) elements")
                 try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
 
-                DispatchQueue.main.async { [weak weakSelf] in
-                    weakSelf?.isProcessingAction = false
+                DispatchQueue.main.async { [weak self] in
+                    self?.isProcessingAction = false
                 }
             }
             return
@@ -269,8 +270,7 @@ class ActionWatcher {
         let capturedArea = area
         let capturedAction = action
         let capturedFocusTimeout = focusTimeout
-        nonisolated(unsafe) let weakSelf2 = self
-        DispatchQueue.global(qos: .userInitiated).async { [weak weakSelf2] in
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let owner = capturedArea.windowOwner ?? "the session window"
 
             // Wait for focus with exponential backoff (0.5s → 1s → 2s → 4s → 8s, capped)
@@ -281,10 +281,7 @@ class ActionWatcher {
             var timedOut = false
 
             while true {
-                var focused = false
-                DispatchQueue.main.sync {
-                    focused = weakSelf2?.isSessionWindowFrontmost(area: capturedArea) ?? false
-                }
+                let focused = self?.isSessionWindowFrontmost(area: capturedArea) ?? false
                 if focused { break }
 
                 if Date() >= focusDeadline {
@@ -305,8 +302,8 @@ class ActionWatcher {
                 NSLog("[agent-vision] TIMEOUT: \(owner) did not gain focus within \(Int(capturedFocusTimeout))s")
                 let result = ActionResult(success: false, message: "Error: \(owner) did not gain focus within \(Int(capturedFocusTimeout))s. Switch focus to it and retry.")
                 try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
-                DispatchQueue.main.async { [weak weakSelf2] in
-                    weakSelf2?.isProcessingAction = false
+                DispatchQueue.main.async { [weak self] in
+                    self?.isProcessingAction = false
                 }
                 return
             }
@@ -318,11 +315,11 @@ class ActionWatcher {
             // Window is frontmost — execute the CGEvent action
             do {
                 let absoluteAction = capturedAction.toAbsolute(area: capturedArea)
-                let message = try weakSelf2?.executeAction(absoluteAction, original: capturedAction) ?? "Action executed"
+                let message = try self?.executeAction(absoluteAction, original: capturedAction) ?? "Action executed"
                 NSLog("[agent-vision] Action executed: \(message)")
 
-                DispatchQueue.main.async { [weak weakSelf2] in
-                    weakSelf2?.onFeedback?(capturedAction, capturedArea)
+                DispatchQueue.main.async { [weak self] in
+                    self?.onFeedback?(capturedAction, capturedArea)
                 }
 
                 let result = ActionResult(success: true, message: message)
@@ -337,18 +334,16 @@ class ActionWatcher {
             if elapsed > 0.5 {
                 NSLog("[agent-vision] WARNING: Action took \(String(format: "%.2f", elapsed))s (>0.5s)")
             }
-            DispatchQueue.main.async { [weak weakSelf2] in
-                weakSelf2?.isProcessingAction = false
+            DispatchQueue.main.async { [weak self] in
+                self?.isProcessingAction = false
             }
         }
     }
 
     /// Returns true only if the session's target window is the frontmost window
     /// at its position AND its owning app has keyboard focus.
-    /// When `requireKeyboardFocus` is true (for type/key actions), also verifies
-    /// the specific window has keyboard focus using the Accessibility API —
-    /// not just that the app is active (handles multiple windows from same app).
-    private func isSessionWindowFrontmost(area: CaptureArea) -> Bool {
+    /// Nonisolated because it only reads CG window list and AX state — no @MainActor properties.
+    private nonisolated func isSessionWindowFrontmost(area: CaptureArea) -> Bool {
         guard let list = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
         ) as? [[String: Any]] else {
@@ -411,21 +406,18 @@ class ActionWatcher {
     }
 
     /// Uses the Accessibility API to check if the app's focused window matches
-    /// the target window bounds. Returns true if the focused window's position
-    /// and size match (within tolerance) the target.
-    private func isFocusedWindow(pid: pid_t, targetBounds: CGRect) -> Bool {
+    /// the target window bounds. Nonisolated — only does AX queries.
+    private nonisolated func isFocusedWindow(pid: pid_t, targetBounds: CGRect) -> Bool {
         let appElement = AXUIElementCreateApplication(pid)
         var focusedWindowRef: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindowRef)
         guard result == .success, let focusedWindow = focusedWindowRef else {
-            // Can't determine focused window — refuse action to be safe
             NSLog("[agent-vision] isFocusedWindow: cannot get focused window via AX API (error: \(result.rawValue)), refusing action")
             return false
         }
 
         let windowElement = focusedWindow as! AXUIElement
 
-        // Get focused window position
         var positionRef: CFTypeRef?
         AXUIElementCopyAttributeValue(windowElement, kAXPositionAttribute as CFString, &positionRef)
         var position = CGPoint.zero
@@ -433,7 +425,6 @@ class ActionWatcher {
             AXValueGetValue(positionRef as! AXValue, .cgPoint, &position)
         }
 
-        // Get focused window size
         var sizeRef: CFTypeRef?
         AXUIElementCopyAttributeValue(windowElement, kAXSizeAttribute as CFString, &sizeRef)
         var size = CGSize.zero
@@ -443,7 +434,6 @@ class ActionWatcher {
 
         let focusedBounds = CGRect(origin: position, size: size)
 
-        // Compare with tolerance (windows can have slight rounding differences)
         let tolerance: CGFloat = 5
         let matches = abs(focusedBounds.origin.x - targetBounds.origin.x) < tolerance
             && abs(focusedBounds.origin.y - targetBounds.origin.y) < tolerance
@@ -457,9 +447,7 @@ class ActionWatcher {
         return matches
     }
 
-    /// Track PIDs we've already signaled for enhanced accessibility.
-    private var enhancedUIPIDs: Set<pid_t> = []
-
+    /// Executes a CGEvent-based action. Nonisolated — only posts CG events.
     private nonisolated func executeAction(_ action: ActionRequest, original: ActionRequest) throws -> String {
         let source = CGEventSource(stateID: .hidSystemState)
 
