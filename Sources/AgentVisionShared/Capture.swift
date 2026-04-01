@@ -31,7 +31,7 @@ public func captureScreenRect(_ rect: CGRect) throws -> CGImage {
     nonisolated(unsafe) var capturedImage: CGImage?
     nonisolated(unsafe) var capturedError: Error?
 
-    Task {
+    Task { @Sendable in
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
