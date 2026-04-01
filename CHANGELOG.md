@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0](https://github.com/rvanbaalen/agent-vision/compare/v0.5.0...v0.6.0) (2026-04-01)
+
+
+### Features
+
+* add 'open' CLI subcommand ([249ff10](https://github.com/rvanbaalen/agent-vision/commit/249ff10942b3def5b5ba90eccbba18851113700a))
+* add auto-select window matching to SessionManager ([4c1cc03](https://github.com/rvanbaalen/agent-vision/commit/4c1cc03910e1f3f6b1d53c488a79a36ffa1ce35d))
+* add AutoSelect struct to AppState for open command ([ce8cae6](https://github.com/rvanbaalen/agent-vision/commit/ce8cae6ad85afe9b45a4aa1c21a78a3d6f32b642))
+* auto-wait for window focus in CGEvent control commands ([e3395a1](https://github.com/rvanbaalen/agent-vision/commit/e3395a11f90e6726e08bde224f9d4a1eb6b65f3a))
+
+
+### Bug Fixes
+
+* correct version to 0.5.0 and fix release-please marker placement ([5a85cd3](https://github.com/rvanbaalen/agent-vision/commit/5a85cd39a99bde0e7127cfad7a15fd4725e0c632))
+
 ## [0.5.0](https://github.com/rvanbaalen/agent-vision/compare/v0.4.0...v0.5.0) (2026-03-31)
 
 
