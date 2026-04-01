@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/rvanbaalen/agent-vision/compare/v0.6.1...v0.6.2) (2026-04-01)
+
+
+### Bug Fixes
+
+* **ActionWatcher:** use nonisolated(unsafe) weak self in async dispatch blocks ([440cf24](https://github.com/rvanbaalen/agent-vision/commit/440cf2499e53d055d92a8bf09ae0a5af3a8eec3d))
+
 ## [0.6.1](https://github.com/rvanbaalen/agent-vision/compare/v0.6.0...v0.6.1) (2026-04-01)
 
 
