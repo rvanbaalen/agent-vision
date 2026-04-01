@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import AgentVisionShared
 
 /// Tracks active sessions, their colors, border windows, and action watchers.
@@ -10,6 +11,8 @@ class SessionManager {
         var area: CaptureArea?
         var borderWindow: BorderWindow?
         var actionWatcher: ActionWatcher
+        var autoSelect: AutoSelect?
+        var autoSelectTimer: Timer?
     }
 
     private(set) var sessions: [String: TrackedSession] = [:]
@@ -108,13 +111,99 @@ class SessionManager {
 
         sessions[id] = tracked
 
+        // Start auto-select polling if requested
+        if let autoSelect = state.autoSelect {
+            sessions[id]?.autoSelect = autoSelect
+            startAutoSelect(for: id, hint: autoSelect)
+        }
+
         // Auto-switch to newest session
         selectedSessionID = id
         onSessionsChanged?()
     }
 
+    private func startAutoSelect(for sessionID: String, hint: AutoSelect) {
+        NSLog("[agent-vision] SessionManager: starting auto-select for \(sessionID) (app=\(hint.appName))")
+        let timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.tryAutoSelect(for: sessionID, hint: hint)
+            }
+        }
+        sessions[sessionID]?.autoSelectTimer = timer
+        // Also try immediately
+        tryAutoSelect(for: sessionID, hint: hint)
+    }
+
+    private func tryAutoSelect(for sessionID: String, hint: AutoSelect) {
+        guard sessions[sessionID] != nil, sessions[sessionID]?.area == nil else {
+            // Already selected or session removed — stop polling
+            sessions[sessionID]?.autoSelectTimer?.invalidate()
+            sessions[sessionID]?.autoSelectTimer = nil
+            return
+        }
+
+        guard let list = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else { return }
+
+        let myPID = ProcessInfo.processInfo.processIdentifier
+
+        for info in list {
+            guard let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
+                  let pid = info[kCGWindowOwnerPID as String] as? pid_t,
+                  let windowNum = info[kCGWindowNumber as String] as? UInt32,
+                  let ownerName = info[kCGWindowOwnerName as String] as? String,
+                  let wx = boundsDict["X"] as? CGFloat,
+                  let wy = boundsDict["Y"] as? CGFloat,
+                  let ww = boundsDict["Width"] as? CGFloat,
+                  let wh = boundsDict["Height"] as? CGFloat,
+                  ww > 50, wh > 50 else { continue }
+
+            if pid == myPID { continue }
+            if let layer = info[kCGWindowLayer as String] as? Int, layer != 0 { continue }
+
+            // Case-insensitive app name match
+            guard ownerName.localizedCaseInsensitiveCompare(hint.appName) == .orderedSame else { continue }
+
+            // Optional title filter
+            if let titleFilter = hint.title {
+                let windowTitle = info[kCGWindowName as String] as? String ?? ""
+                guard windowTitle.localizedCaseInsensitiveContains(titleFilter) else { continue }
+            }
+
+            // Match found — create CaptureArea and write state
+            let windowTitle = info[kCGWindowName as String] as? String
+            let area = CaptureArea(
+                x: Double(wx), y: Double(wy),
+                width: Double(ww), height: Double(wh),
+                windowNumber: windowNum,
+                windowOwner: ownerName,
+                windowTitle: windowTitle
+            )
+
+            NSLog("[agent-vision] SessionManager: auto-selected window \"\(ownerName)\" (\(windowNum)) for \(sessionID)")
+
+            let tracked = sessions[sessionID]!
+            let guiPid = ProcessInfo.processInfo.processIdentifier
+            let state = AppState(pid: guiPid, area: area, colorIndex: tracked.colorIndex)
+            do {
+                try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: Config.sessionDirectory(for: sessionID))
+            } catch {
+                NSLog("[agent-vision] ERROR: Failed to write auto-selected area: \(error)")
+            }
+
+            // Stop polling
+            sessions[sessionID]?.autoSelectTimer?.invalidate()
+            sessions[sessionID]?.autoSelectTimer = nil
+            // The scan() method will pick up the area change and create the border
+            return
+        }
+    }
+
     private func removeSession(id: String) {
         NSLog("[agent-vision] SessionManager: removing session \(id)")
+        sessions[id]?.autoSelectTimer?.invalidate()
+        sessions[id]?.autoSelectTimer = nil
         sessions[id]?.actionWatcher.stop()
         sessions[id]?.borderWindow?.stopTracking()
         sessions[id]?.borderWindow?.orderOut(nil)
