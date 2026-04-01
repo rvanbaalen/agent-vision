@@ -103,7 +103,8 @@ class ActionWatcher {
                     return
                 }
                 let capturedArea = area
-                DispatchQueue.global(qos: .userInitiated).async {
+                nonisolated(unsafe) let wself = self
+                DispatchQueue.global(qos: .userInitiated).async { [weak wself] in
                     let actionResult: ActionResult
                     do {
                         try ElementAction.press(element: el, area: capturedArea)
@@ -118,8 +119,8 @@ class ActionWatcher {
                         NSLog("[agent-vision] WARNING: clickElement took \(String(format: "%.2f", elapsed))s")
                     }
                     try? ActionFile.writeResult(actionResult, to: resultPath, createDirectory: sessionDir)
-                    DispatchQueue.main.async { [weak self] in
-                        self?.isProcessingAction = false
+                    DispatchQueue.main.async { [weak wself] in
+                        wself?.isProcessingAction = false
                     }
                 }
             } catch {
@@ -142,7 +143,8 @@ class ActionWatcher {
                     return
                 }
                 let capturedArea = area
-                DispatchQueue.global(qos: .userInitiated).async {
+                nonisolated(unsafe) let wself = self
+                DispatchQueue.global(qos: .userInitiated).async { [weak wself] in
                     let actionResult: ActionResult
                     do {
                         try ElementAction.setText(text, element: el, area: capturedArea)
@@ -157,8 +159,8 @@ class ActionWatcher {
                         NSLog("[agent-vision] WARNING: typeElement took \(String(format: "%.2f", elapsed))s")
                     }
                     try? ActionFile.writeResult(actionResult, to: resultPath, createDirectory: sessionDir)
-                    DispatchQueue.main.async { [weak self] in
-                        self?.isProcessingAction = false
+                    DispatchQueue.main.async { [weak wself] in
+                        wself?.isProcessingAction = false
                     }
                 }
             } catch {
@@ -172,7 +174,8 @@ class ActionWatcher {
             NSLog("[agent-vision] discoverElements — starting element discovery")
             let capturedArea = area
             let sid = sessionID
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            nonisolated(unsafe) let weakSelf = self
+            DispatchQueue.global(qos: .userInitiated).async { [weak weakSelf] in
                 let scanResult: ElementScanResult
                 // performElementDiscovery needs main thread for NSRunningApplication
                 // but the AX tree walk and OCR are the slow parts — we handle the
@@ -198,8 +201,8 @@ class ActionWatcher {
                     )
                     var needsBrowserWait = false
                     DispatchQueue.main.sync {
-                        if let self = self, !self.enhancedUIPIDs.contains(p) {
-                            self.enhancedUIPIDs.insert(p)
+                        if let s = weakSelf, !s.enhancedUIPIDs.contains(p) {
+                            s.enhancedUIPIDs.insert(p)
                             let isBrowser = ["com.google.Chrome", "com.apple.Safari",
                                              "company.thebrowser.Browser", "org.mozilla.firefox",
                                              "com.microsoft.edgemac"].contains(where: { bundleID.contains($0) })
@@ -254,8 +257,8 @@ class ActionWatcher {
                 let result = ActionResult(success: true, message: "Discovered \(scanResult.elementCount) elements")
                 try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
 
-                DispatchQueue.main.async { [weak self] in
-                    self?.isProcessingAction = false
+                DispatchQueue.main.async { [weak weakSelf] in
+                    weakSelf?.isProcessingAction = false
                 }
             }
             return
@@ -266,7 +269,8 @@ class ActionWatcher {
         let capturedArea = area
         let capturedAction = action
         let capturedFocusTimeout = focusTimeout
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        nonisolated(unsafe) let weakSelf2 = self
+        DispatchQueue.global(qos: .userInitiated).async { [weak weakSelf2] in
             let owner = capturedArea.windowOwner ?? "the session window"
 
             // Wait for focus with exponential backoff (0.5s → 1s → 2s → 4s → 8s, capped)
@@ -279,7 +283,7 @@ class ActionWatcher {
             while true {
                 var focused = false
                 DispatchQueue.main.sync {
-                    focused = self?.isSessionWindowFrontmost(area: capturedArea) ?? false
+                    focused = weakSelf2?.isSessionWindowFrontmost(area: capturedArea) ?? false
                 }
                 if focused { break }
 
@@ -301,8 +305,8 @@ class ActionWatcher {
                 NSLog("[agent-vision] TIMEOUT: \(owner) did not gain focus within \(Int(capturedFocusTimeout))s")
                 let result = ActionResult(success: false, message: "Error: \(owner) did not gain focus within \(Int(capturedFocusTimeout))s. Switch focus to it and retry.")
                 try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
-                DispatchQueue.main.async { [weak self] in
-                    self?.isProcessingAction = false
+                DispatchQueue.main.async { [weak weakSelf2] in
+                    weakSelf2?.isProcessingAction = false
                 }
                 return
             }
@@ -314,11 +318,11 @@ class ActionWatcher {
             // Window is frontmost — execute the CGEvent action
             do {
                 let absoluteAction = capturedAction.toAbsolute(area: capturedArea)
-                let message = try self?.executeAction(absoluteAction, original: capturedAction) ?? "Action executed"
+                let message = try weakSelf2?.executeAction(absoluteAction, original: capturedAction) ?? "Action executed"
                 NSLog("[agent-vision] Action executed: \(message)")
 
-                DispatchQueue.main.async { [weak self] in
-                    self?.onFeedback?(capturedAction, capturedArea)
+                DispatchQueue.main.async { [weak weakSelf2] in
+                    weakSelf2?.onFeedback?(capturedAction, capturedArea)
                 }
 
                 let result = ActionResult(success: true, message: message)
@@ -333,8 +337,8 @@ class ActionWatcher {
             if elapsed > 0.5 {
                 NSLog("[agent-vision] WARNING: Action took \(String(format: "%.2f", elapsed))s (>0.5s)")
             }
-            DispatchQueue.main.async { [weak self] in
-                self?.isProcessingAction = false
+            DispatchQueue.main.async { [weak weakSelf2] in
+                weakSelf2?.isProcessingAction = false
             }
         }
     }
@@ -456,7 +460,7 @@ class ActionWatcher {
     /// Track PIDs we've already signaled for enhanced accessibility.
     private var enhancedUIPIDs: Set<pid_t> = []
 
-    private func executeAction(_ action: ActionRequest, original: ActionRequest) throws -> String {
+    private nonisolated func executeAction(_ action: ActionRequest, original: ActionRequest) throws -> String {
         let source = CGEventSource(stateID: .hidSystemState)
 
         switch action {
