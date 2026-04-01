@@ -9,7 +9,7 @@ Agent Vision is a macOS CLI tool that gives you eyes and hands on the user's scr
 
 ## How It Works
 
-1. Run `agent-vision start` — it launches the GUI (or connects to an existing one) and blocks until the user selects a screen area
+1. Run `agent-vision open <app>` to open an application and auto-select its window, or `agent-vision start` for manual area selection — both block until the area is ready
 2. On success, it prints the session UUID (first line) and area dimensions (second line)
 3. You issue CLI commands with `--session <uuid>` to capture screenshots, discover elements, and control input
 4. All interactions are scoped to the selected area — you cannot interact outside it
@@ -22,18 +22,25 @@ Agent Vision is a macOS CLI tool that gives you eyes and hands on the user's scr
 
 ## Session Management — READ THIS FIRST
 
-`agent-vision start` blocks until the user selects a screen area, then prints the session UUID on the first line and the area dimensions on the second line. It supports `--timeout N` (default 60s). Every subsequent command requires `--session <uuid>` with this exact UUID.
+**Preferred: Use `agent-vision open <app>` when you know which application to target.** It launches (or activates) the app and automatically selects its window — no manual interaction needed. Use `agent-vision start` only when you need manual area selection (e.g., selecting a sub-region or a custom area).
 
-**You must capture the UUID from the output of `start` and pass it as a literal string to every command.** Shell variables like `$SESSION` do not persist between separate command invocations.
+Both commands block until the area is ready, then print the session UUID on the first line and the area dimensions on the second line. They support `--timeout N` (default 60s). Every subsequent command requires `--session <uuid>` with this exact UUID.
 
-Step 1 — Start a session (blocks until area selected):
+**You must capture the UUID from the output and pass it as a literal string to every command.** Shell variables like `$SESSION` do not persist between separate command invocations.
+
+Step 1 — Open an application (blocks until window auto-selected):
 ```bash
-agent-vision start
+agent-vision open Safari
 ```
 Output:
 ```
 a1b2c3d4-e5f6-7890-abcd-ef1234567890
-Area selected: 800x600 at (100, 200)
+Area selected: 1200x800 at (0, 38)
+```
+
+Or, for manual area selection:
+```bash
+agent-vision start
 ```
 
 Step 2 — Use that literal UUID in every subsequent command:
@@ -45,10 +52,10 @@ agent-vision elements --session a1b2c3d4-e5f6-7890-abcd-ef1234567890
 ## Quick Start
 
 ```bash
-agent-vision start
-# Blocks until user selects area, then prints:
+agent-vision open Safari
+# Blocks until Safari's window is auto-selected, then prints:
 # a1b2c3d4-e5f6-7890-abcd-ef1234567890
-# Area selected: 800x600 at (100, 200)
+# Area selected: 1200x800 at (0, 38)
 # Use the UUID (first line) in all commands below:
 
 agent-vision capture --session a1b2c3d4-...   # Take a screenshot (prints file path)
@@ -61,8 +68,11 @@ agent-vision stop --session a1b2c3d4-...      # End session
 
 ### Session Management
 
+**`agent-vision open <application> [--title TITLE] [--timeout N]`**
+Opens (or activates) an application by name and starts a session with its window automatically selected. No manual interaction required. Use `--title` to filter by window title substring (case-insensitive) when the app has multiple windows. Default timeout: 60s. Output format is the same as `start`. This is the preferred way to start a session when you know which app to target.
+
 **`agent-vision start [--timeout N]`**
-Creates a session and launches the GUI (or connects to an existing one). Blocks until the user selects an area. Default timeout: 60s. On success, prints session UUID (first line) and area dimensions (second line). The toolbar has three buttons: Select Area (drag to mark a region), Select Window (hover and click a window), Close.
+Creates a session and launches the GUI (or connects to an existing one). Blocks until the user manually selects an area. Default timeout: 60s. On success, prints session UUID (first line) and area dimensions (second line). The toolbar has three buttons: Select Area (drag to mark a region), Select Window (hover and click a window), Close. Use this when you need manual area selection or `open` doesn't apply.
 
 **`agent-vision stop --session <uuid>`**
 Stops the session and cleans up state.
@@ -292,11 +302,11 @@ agent-vision control click --session <uuid> --at 400,150  # Click
 ## Full Example Session
 
 ```bash
-# Step 1: Start session — blocks until user selects an area
-agent-vision start
+# Step 1: Open application — blocks until window is auto-selected
+agent-vision open Safari
 # Output:
 # a1b2c3d4-e5f6-7890-abcd-ef1234567890
-# Area selected: 800x600 at (100, 200)
+# Area selected: 1200x800 at (0, 38)
 # Use the UUID (first line) in all commands below.
 
 # Step 2: Capture reference state
