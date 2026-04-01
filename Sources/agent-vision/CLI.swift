@@ -488,7 +488,7 @@ func requireArea(session sessionID: String) throws -> CaptureArea {
 }
 
 /// Send an action to the GUI and wait for the result.
-func sendAction(_ action: ActionRequest, area: CaptureArea, session sessionID: String, quiet: Bool = false) throws {
+func sendAction(_ action: ActionRequest, area: CaptureArea, session sessionID: String, quiet: Bool = false, focusTimeout: Int? = nil) throws {
     if let error = action.boundsError(for: area) {
         fputs("\(error)\n", stderr)
         throw ExitCode.failure
@@ -501,17 +501,19 @@ func sendAction(_ action: ActionRequest, area: CaptureArea, session sessionID: S
     ActionFile.delete(at: actionPath)
     ActionFile.delete(at: resultPath)
 
-    try ActionFile.write(action, to: actionPath, createDirectory: sessionDir)
+    try ActionFile.write(action, to: actionPath, createDirectory: sessionDir, focusTimeout: focusTimeout)
 
     // Element discovery and element-based actions need longer timeouts
-    // (AX tree re-walk on complex apps like Mail can take 5-10s)
+    // (AX tree re-walk on complex apps like Mail can take 5-10s).
+    // CGEvent actions may auto-wait for window focus, so add focusTimeout.
+    let focusWait = TimeInterval(focusTimeout ?? 120)
     let timeout: TimeInterval
     if action.isDiscoverElements {
         timeout = 30
     } else if action.isElementBased {
         timeout = 15
     } else {
-        timeout = 10
+        timeout = 10 + focusWait
     }
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
@@ -574,6 +576,10 @@ struct Control: ParsableCommand {
         abstract: "Control the selected area",
         subcommands: [Click.self, TypeText.self, Key.self, Scroll.self, Drag.self]
     )
+
+    /// Default focus timeout in seconds. CGEvent actions auto-wait for the
+    /// window to have focus before executing, up to this limit.
+    static let defaultFocusTimeout = 120
 }
 
 extension Control {
@@ -589,6 +595,9 @@ extension Control {
         @Option(name: .long, help: "Element index from last 'elements' scan (focus-free)")
         var element: Int?
 
+        @Option(name: .long, help: "Max seconds to wait for window focus (default: \(Control.defaultFocusTimeout))")
+        var focusTimeout: Int = Control.defaultFocusTimeout
+
         func run() throws {
             let area = try requireArea(session: session)
 
@@ -600,7 +609,7 @@ extension Control {
                 try sendAction(.clickElement(index: elementIndex), area: area, session: session)
             } else if let atStr = at {
                 let point = try parsePoint(atStr)
-                try sendAction(.click(at: point), area: area, session: session)
+                try sendAction(.click(at: point), area: area, session: session, focusTimeout: focusTimeout)
             } else {
                 fputs("Specify --at X,Y or --element N.\n", stderr)
                 throw ExitCode.failure
@@ -623,13 +632,16 @@ extension Control {
         @Option(name: .long, help: "Element index from last 'elements' scan (focus-free, replaces field value)")
         var element: Int?
 
+        @Option(name: .long, help: "Max seconds to wait for window focus (default: \(Control.defaultFocusTimeout))")
+        var focusTimeout: Int = Control.defaultFocusTimeout
+
         func run() throws {
             let area = try requireArea(session: session)
 
             if let elementIndex = element {
                 try sendAction(.typeElement(text: text, index: elementIndex), area: area, session: session)
             } else {
-                try sendAction(.type(text: text), area: area, session: session)
+                try sendAction(.type(text: text), area: area, session: session, focusTimeout: focusTimeout)
             }
         }
     }
@@ -643,6 +655,9 @@ extension Control {
         @Option(name: .long, help: "Key to press (e.g. enter, tab, cmd+a, shift+tab)")
         var key: String
 
+        @Option(name: .long, help: "Max seconds to wait for window focus (default: \(Control.defaultFocusTimeout))")
+        var focusTimeout: Int = Control.defaultFocusTimeout
+
         func run() throws {
             do {
                 _ = try KeyMapping.parse(key)
@@ -651,7 +666,7 @@ extension Control {
                 throw ExitCode.failure
             }
             let area = try requireArea(session: session)
-            try sendAction(.key(key: key), area: area, session: session)
+            try sendAction(.key(key: key), area: area, session: session, focusTimeout: focusTimeout)
         }
     }
 
@@ -667,6 +682,9 @@ extension Control {
         @Option(name: .long, help: "Position as X,Y (default: center of area)")
         var at: String?
 
+        @Option(name: .long, help: "Max seconds to wait for window focus (default: \(Control.defaultFocusTimeout))")
+        var focusTimeout: Int = Control.defaultFocusTimeout
+
         func run() throws {
             let area = try requireArea(session: session)
             let d = try parseDelta(delta)
@@ -676,7 +694,7 @@ extension Control {
             } else {
                 point = Point(x: area.width / 2, y: area.height / 2)
             }
-            try sendAction(.scroll(delta: d, at: point), area: area, session: session)
+            try sendAction(.scroll(delta: d, at: point), area: area, session: session, focusTimeout: focusTimeout)
         }
     }
 
@@ -692,11 +710,14 @@ extension Control {
         @Option(name: .long, help: "End position as X,Y")
         var to: String
 
+        @Option(name: .long, help: "Max seconds to wait for window focus (default: \(Control.defaultFocusTimeout))")
+        var focusTimeout: Int = Control.defaultFocusTimeout
+
         func run() throws {
             let area = try requireArea(session: session)
             let fromPt = try parsePoint(from)
             let toPt = try parsePoint(to)
-            try sendAction(.drag(from: fromPt, to: toPt), area: area, session: session)
+            try sendAction(.drag(from: fromPt, to: toPt), area: area, session: session, focusTimeout: focusTimeout)
         }
     }
 }

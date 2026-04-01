@@ -155,40 +155,20 @@ agent-vision elements --session <uuid>                        # 4. Re-scan (indi
 agent-vision control click --element 1 --session <uuid>       # 5. Act on NEW scan
 ```
 
-## Window Focus and the `focus` Command
+## Window Focus
 
-All control commands (click, type, key, scroll, drag) require the session window to have keyboard focus. If it doesn't, the command is refused with an error like:
+CGEvent control commands (`--at`, `type` without `--element`, `key`, `scroll`, `drag`) require the session window to have keyboard focus. **These commands auto-wait** — if the window doesn't have focus, the command blocks with exponential backoff until focus returns, then executes automatically. Default timeout: 120 seconds, overridable with `--focus-timeout N`.
+
+If the window doesn't regain focus within the timeout, the command fails:
 ```
-Error: Ghostty is not the focused window. Switch focus to it and retry.
-```
-
-When this happens, use `agent-vision focus` to wait until the user switches back:
-```bash
-agent-vision focus --session <uuid>
-```
-This polls with exponential backoff until the window regains keyboard focus, then confirms focus is stable for 5 seconds before returning. If focus isn't regained after 20 attempts, it fails.
-
-**After regaining focus, always capture before continuing.** The user may have changed the UI while the window was out of focus — buttons may have moved, text may have changed, the page may have navigated. Never assume the UI is in the same state as before.
-
-```bash
-# Control command fails — window out of focus
-agent-vision control click --session <uuid> --at 100,100
-# Error: Safari is not the focused window. Switch focus to it and retry.
-
-# Wait for focus to return
-agent-vision focus --session <uuid>
-# Focus confirmed on Safari.
-
-# Capture to see current UI state before continuing
-agent-vision capture --session <uuid> --output /tmp/refocus.png
-# Read the screenshot to understand what's on screen NOW
-
-# Re-scan elements — old indices are likely stale
-agent-vision elements --session <uuid>
-# Now continue with fresh state
+Error: Safari did not gain focus within 120s. Switch focus to it and retry.
 ```
 
-Note: `--element N` actions (via Accessibility API) are focus-free and work regardless of which window has focus. Prefer `--element` over `--at` whenever possible.
+**After a long focus wait, always capture before continuing.** The user may have changed the UI while the window was out of focus — buttons may have moved, text may have changed, the page may have navigated. Never assume the UI is in the same state as before.
+
+`--element N` actions (via Accessibility API) are focus-free and work regardless of which window has focus. Prefer `--element` over `--at` whenever possible.
+
+**`agent-vision focus --session <uuid> [--timeout N]`** is still available for explicit focus waiting (e.g., before a sequence of CGEvent actions), but is no longer required — control commands handle it automatically.
 
 ## Element Targeting Strategy
 

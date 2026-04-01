@@ -139,10 +139,18 @@ public struct ActionResult: Codable, Sendable {
 }
 
 public enum ActionFile {
-    public static func write(_ action: ActionRequest, to path: URL, createDirectory dir: URL) throws {
+    public static func write(_ action: ActionRequest, to path: URL, createDirectory dir: URL, focusTimeout: Int? = nil) throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(action)
-        try data.write(to: path, options: .atomic)
+        if let timeout = focusTimeout {
+            let encoded = try JSONEncoder().encode(action)
+            var dict = (try JSONSerialization.jsonObject(with: encoded) as? [String: Any]) ?? [:]
+            dict["focusTimeout"] = timeout
+            let data = try JSONSerialization.data(withJSONObject: dict)
+            try data.write(to: path, options: .atomic)
+        } else {
+            let data = try JSONEncoder().encode(action)
+            try data.write(to: path, options: .atomic)
+        }
     }
     public static func readAction(from path: URL) throws -> ActionRequest {
         let data = try Data(contentsOf: path)

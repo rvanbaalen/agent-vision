@@ -47,7 +47,15 @@ class ActionWatcher {
 
         let action: ActionRequest
         let area: CaptureArea
+        var focusTimeout: TimeInterval = 120 // Default 2 minutes
         do {
+            // Read focusTimeout from raw JSON before decoding ActionRequest
+            let rawData = try Data(contentsOf: actionPath)
+            if let json = try? JSONSerialization.jsonObject(with: rawData) as? [String: Any],
+               let timeout = json["focusTimeout"] as? Int {
+                focusTimeout = TimeInterval(timeout)
+            }
+
             action = try ActionFile.readAction(from: actionPath)
             NSLog("[agent-vision] Action received: \(action)")
 
@@ -254,37 +262,81 @@ class ActionWatcher {
         }
 
         // ALL CGEvent actions require the target window to have keyboard focus.
-        // Refuse immediately if it doesn't — the LLM must retry.
-        if !isSessionWindowFrontmost(area: area) {
-            let owner = area.windowOwner ?? "the session window"
-            NSLog("[agent-vision] BLOCKED: \(owner) is not the frontmost window — refusing CGEvent action")
-            let result = ActionResult(success: false, message: "Error: \(owner) is not the focused window. Switch focus to it and retry.")
-            try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
-            isProcessingAction = false
-            return
+        // Auto-wait for focus with exponential backoff instead of failing immediately.
+        let capturedArea = area
+        let capturedAction = action
+        let capturedFocusTimeout = focusTimeout
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let owner = capturedArea.windowOwner ?? "the session window"
+
+            // Wait for focus with exponential backoff (0.5s → 1s → 2s → 4s → 8s, capped)
+            var delay: TimeInterval = 0.5
+            let maxDelay: TimeInterval = 8
+            var hasPrintedWaiting = false
+            let focusDeadline = Date().addingTimeInterval(capturedFocusTimeout)
+            var timedOut = false
+
+            while true {
+                var focused = false
+                DispatchQueue.main.sync {
+                    focused = self?.isSessionWindowFrontmost(area: capturedArea) ?? false
+                }
+                if focused { break }
+
+                if Date() >= focusDeadline {
+                    timedOut = true
+                    break
+                }
+
+                if !hasPrintedWaiting {
+                    NSLog("[agent-vision] Waiting for \(owner) to have focus before executing action (timeout: \(Int(capturedFocusTimeout))s)...")
+                    hasPrintedWaiting = true
+                }
+
+                Thread.sleep(forTimeInterval: delay)
+                delay = min(delay * 2, maxDelay)
+            }
+
+            if timedOut {
+                NSLog("[agent-vision] TIMEOUT: \(owner) did not gain focus within \(Int(capturedFocusTimeout))s")
+                let result = ActionResult(success: false, message: "Error: \(owner) did not gain focus within \(Int(capturedFocusTimeout))s. Switch focus to it and retry.")
+                try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
+                DispatchQueue.main.async { [weak self] in
+                    self?.isProcessingAction = false
+                }
+                return
+            }
+
+            if hasPrintedWaiting {
+                NSLog("[agent-vision] \(owner) has focus — executing queued action")
+            }
+
+            // Window is frontmost — execute the CGEvent action
+            do {
+                let absoluteAction = capturedAction.toAbsolute(area: capturedArea)
+                let message = try self?.executeAction(absoluteAction, original: capturedAction) ?? "Action executed"
+                NSLog("[agent-vision] Action executed: \(message)")
+
+                DispatchQueue.main.async { [weak self] in
+                    self?.onFeedback?(capturedAction, capturedArea)
+                }
+
+                let result = ActionResult(success: true, message: message)
+                try ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
+            } catch {
+                NSLog("[agent-vision] Action FAILED with error: \(error)")
+                let result = ActionResult(success: false, message: "Error: \(error)")
+                try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
+            }
+
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            if elapsed > 0.5 {
+                NSLog("[agent-vision] WARNING: Action took \(String(format: "%.2f", elapsed))s (>0.5s)")
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.isProcessingAction = false
+            }
         }
-
-        // Window is frontmost — execute the CGEvent action
-        do {
-            let absoluteAction = action.toAbsolute(area: area)
-            let message = try executeAction(absoluteAction, original: action)
-            NSLog("[agent-vision] Action executed: \(message)")
-
-            onFeedback?(action, area)
-
-            let result = ActionResult(success: true, message: message)
-            try ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
-        } catch {
-            NSLog("[agent-vision] Action FAILED with error: \(error)")
-            let result = ActionResult(success: false, message: "Error: \(error)")
-            try? ActionFile.writeResult(result, to: resultPath, createDirectory: sessionDir)
-        }
-
-        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-        if elapsed > 0.5 {
-            NSLog("[agent-vision] WARNING: Action took \(String(format: "%.2f", elapsed))s (>0.5s)")
-        }
-        isProcessingAction = false
     }
 
     /// Returns true only if the session's target window is the frontmost window
