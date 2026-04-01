@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/rvanbaalen/agent-vision/compare/v0.6.2...v0.6.3) (2026-04-01)
+
+
+### Bug Fixes
+
+* trigger release for Swift 6.0 concurrency compatibility ([5b0bd9e](https://github.com/rvanbaalen/agent-vision/commit/5b0bd9e1aefbaa13963a7788463aaf1e3348a3cf))
+
 ## [0.6.2](https://github.com/rvanbaalen/agent-vision/compare/v0.6.1...v0.6.2) (2026-04-01)
 
 
