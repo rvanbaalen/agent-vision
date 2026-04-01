@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/rvanbaalen/agent-vision/compare/v0.6.0...v0.6.1) (2026-04-01)
+
+
+### Bug Fixes
+
+* add @Sendable annotation to Task closure in captureScreenRect ([23a844b](https://github.com/rvanbaalen/agent-vision/commit/23a844bf8d002a458e42b3b70033e75fa36c76a4))
+
 ## [0.6.0](https://github.com/rvanbaalen/agent-vision/compare/v0.5.0...v0.6.0) (2026-04-01)
 
 
