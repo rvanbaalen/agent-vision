@@ -38,19 +38,31 @@ public struct CaptureArea: Codable, Sendable {
     }
 }
 
+public struct AutoSelect: Codable, Sendable {
+    public let appName: String
+    public let title: String?
+
+    public init(appName: String, title: String? = nil) {
+        self.appName = appName
+        self.title = title
+    }
+}
+
 public struct AppState: Codable, Sendable {
     public var pid: Int32
     public var area: CaptureArea?
     public var colorIndex: Int
+    public var autoSelect: AutoSelect?
 
-    public init(pid: Int32, area: CaptureArea?, colorIndex: Int = 0) {
+    public init(pid: Int32, area: CaptureArea?, colorIndex: Int = 0, autoSelect: AutoSelect? = nil) {
         self.pid = pid
         self.area = area
         self.colorIndex = colorIndex
+        self.autoSelect = autoSelect
     }
 
     enum CodingKeys: String, CodingKey {
-        case pid, area, colorIndex
+        case pid, area, colorIndex, autoSelect
     }
 
     public init(from decoder: Decoder) throws {
@@ -58,6 +70,7 @@ public struct AppState: Codable, Sendable {
         pid = try container.decode(Int32.self, forKey: .pid)
         area = try container.decodeIfPresent(CaptureArea.self, forKey: .area)
         colorIndex = try container.decodeIfPresent(Int.self, forKey: .colorIndex) ?? 0
+        autoSelect = try container.decodeIfPresent(AutoSelect.self, forKey: .autoSelect)
     }
 }
 
