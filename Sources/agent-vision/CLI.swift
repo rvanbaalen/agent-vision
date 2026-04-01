@@ -10,7 +10,7 @@ struct AgentVision: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "agent-vision",
         abstract: "Give AI agents eyes on your screen",
-        subcommands: [Start.self, ListSessions.self, Focus.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self, Learn.self]
+        subcommands: [Start.self, Open.self, ListSessions.self, Focus.self, Capture.self, Calibrate.self, Preview.self, Stop.self, Control.self, Elements.self, Learn.self]
     )
 
     @Flag(name: .long, help: .hidden)
@@ -81,6 +81,86 @@ struct Start: ParsableCommand {
 
         fputs("No area selected within \(timeout)s\n", stderr)
         // Clean up the session we created since it was never used
+        try? FileManager.default.removeItem(at: sessionDir)
+        throw ExitCode.failure
+    }
+}
+
+struct Open: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        abstract: "Open an application and start a session with its window auto-selected"
+    )
+
+    @Argument(help: "Application name (e.g. Safari, Finder, \"Visual Studio Code\")")
+    var application: String
+
+    @Option(name: .long, help: "Filter by window title (substring, case-insensitive)")
+    var title: String?
+
+    @Option(name: .long, help: "Timeout in seconds (default: 60)")
+    var timeout: Int = 60
+
+    func run() throws {
+        checkForUpdate(owner: "rvanbaalen", repo: "agent-vision")
+        Config.cleanStaleSessions()
+
+        // Step 1: Launch or activate the application
+        let openProcess = Process()
+        openProcess.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        openProcess.arguments = ["-a", application]
+        openProcess.standardOutput = FileHandle.nullDevice
+        openProcess.standardError = FileHandle.nullDevice
+        try openProcess.run()
+        openProcess.waitUntilExit()
+
+        if openProcess.terminationStatus != 0 {
+            fputs("Failed to open \"\(application)\" — app not found or could not be launched.\n", stderr)
+            throw ExitCode.failure
+        }
+
+        // Step 2: Create session with autoSelect hint
+        let sessionID = UUID().uuidString.lowercased()
+        let sessionDir = Config.sessionDirectory(for: sessionID)
+
+        let existingColors = (try? existingSessionColorIndices()) ?? []
+        let colorIndex = SessionColors.nextColorIndex(existing: existingColors)
+
+        let guiPid = readGuiPid()
+        let guiAlive = guiPid != nil && StateFile.isProcessRunning(pid: guiPid!)
+
+        let autoSelect = AutoSelect(appName: application, title: title)
+        let state = AppState(pid: guiPid ?? ProcessInfo.processInfo.processIdentifier, area: nil, colorIndex: colorIndex, autoSelect: autoSelect)
+        try StateFile.write(state, to: Config.stateFilePath(for: sessionID), createDirectory: sessionDir)
+
+        if !guiAlive {
+            let pid = try spawnGUI()
+            writeGuiPid(pid)
+            let updatedState = AppState(pid: pid, area: nil, colorIndex: colorIndex, autoSelect: autoSelect)
+            try StateFile.write(updatedState, to: Config.stateFilePath(for: sessionID), createDirectory: sessionDir)
+        }
+
+        // Step 3: Poll for area selection (GUI will auto-select the window)
+        let statePath = Config.stateFilePath(for: sessionID)
+        let deadline = Date().addingTimeInterval(TimeInterval(timeout))
+
+        fputs("Waiting for \"\(application)\" window to be detected...\n", stderr)
+
+        while Date() < deadline {
+            guard let currentState = try StateFile.read(from: statePath) else {
+                fputs("Session disappeared unexpectedly.\n", stderr)
+                throw ExitCode.failure
+            }
+
+            if let area = currentState.area {
+                print(sessionID)
+                print("Area selected: \(Int(area.width))x\(Int(area.height)) at (\(Int(area.x)), \(Int(area.y)))")
+                return
+            }
+
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+
+        fputs("No matching window found for \"\(application)\" within \(timeout)s\n", stderr)
         try? FileManager.default.removeItem(at: sessionDir)
         throw ExitCode.failure
     }
