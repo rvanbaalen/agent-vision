@@ -27,8 +27,12 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: macos-15
+    outputs:
+      sha256: ${{ steps.package.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - name: Build release binary
         run: swift build -c release --disable-sandbox
@@ -40,9 +44,7 @@ jobs:
           APP="Agent Vision.app"
           mkdir -p "${APP}/Contents/MacOS"
           mkdir -p "${APP}/Contents/Resources"
-
           cp .build/release/agent-vision "${APP}/Contents/MacOS/agent-vision"
-
           cat > "${APP}/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -72,33 +74,26 @@ jobs:
           </dict>
           </plist>
           PLIST
-
           codesign --force --sign - --deep "${APP}"
 
-      - name: Create tarball
-        run: tar -czf agent-vision-arm64.tar.gz "Agent Vision.app"
+      - name: Package and compute SHA256
+        id: package
+        run: |
+          tar czf agent-vision-arm64.tar.gz "Agent Vision.app"
+          SHA=$(shasum -a 256 agent-vision-arm64.tar.gz | cut -d' ' -f1)
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Upload to GitHub Release
+      - name: Upload binary to release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
-        run: gh release upload "${TAG}" agent-vision-arm64.tar.gz
+        run: gh release upload "$TAG" agent-vision-arm64.tar.gz --clobber
 
   update-homebrew:
     needs: [release-please, build-and-upload]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Get binary tarball SHA256
-        id: sha
-        env:
-          REPO: ${{ github.repository }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
-        run: |
-          curl -sL "https://github.com/${REPO}/releases/download/${TAG}/agent-vision-arm64.tar.gz" -o agent-vision-arm64.tar.gz
-          SHA=$(shasum -a 256 agent-vision-arm64.tar.gz | cut -d' ' -f1)
-          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
-
       - name: Update Homebrew formula
         uses: peter-evans/repository-dispatch@v3
         with:
@@ -109,5 +104,5 @@ jobs:
             {
               "version": "${{ needs.release-please.outputs.version }}",
               "tag": "${{ needs.release-please.outputs.tag_name }}",
-              "sha256": "${{ steps.sha.outputs.sha256 }}"
+              "sha256": "${{ needs.build-and-upload.outputs.sha256 }}"
             }
