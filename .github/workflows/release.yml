@@ -98,8 +98,8 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          repository: rvanbaalen/homebrew-agent-vision
-          event-type: update-formula
+          repository: rvanbaalen/homebrew-tap
+          event-type: update-agent-vision
           client-payload: |
             {
               "version": "${{ needs.release-please.outputs.version }}",
