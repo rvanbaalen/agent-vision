@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.4](https://github.com/rvanbaalen/agent-vision/compare/v0.6.3...v0.6.4) (2026-04-02)
+
+
+### Bug Fixes
+
+* remove Xcode dependency from Homebrew install ([d37bc57](https://github.com/rvanbaalen/agent-vision/commit/d37bc57a1bdb896911b0d886e82642455dce2a0c))
+* strip quarantine attribute in Homebrew formula ([03357f7](https://github.com/rvanbaalen/agent-vision/commit/03357f7fe585bf06a968f632b831a41ad812bcc0))
+
 ## [0.6.3](https://github.com/rvanbaalen/agent-vision/compare/v0.6.2...v0.6.3) (2026-04-01)
 
 
