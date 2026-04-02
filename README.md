@@ -5,8 +5,7 @@ A macOS utility that gives AI agents eyes — and optionally hands — on your s
 ## Install
 
 ```bash
-brew tap rvanbaalen/agent-vision
-brew install agent-vision
+brew install rvanbaalen/tap/agent-vision
 ```
 
 Requires macOS 14+ (Sonoma) and Apple Silicon.
