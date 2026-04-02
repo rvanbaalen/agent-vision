@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.5](https://github.com/rvanbaalen/agent-vision/compare/v0.6.4...v0.6.5) (2026-04-02)
+
+
+### Bug Fixes
+
+* build pre-built binary on macOS in release workflow ([353da87](https://github.com/rvanbaalen/agent-vision/commit/353da879da11311b5d322724d489d3e5f64cd1b4))
+* point homebrew update at consolidated rvanbaalen/homebrew-tap repo ([aa6cebd](https://github.com/rvanbaalen/agent-vision/commit/aa6cebd8d9fd202c2837511ce0a93aee69d2773b))
+* update brew install instructions to use consolidated tap ([968b0b9](https://github.com/rvanbaalen/agent-vision/commit/968b0b9311d0b567e5b7150ee1ab94434191248a))
+
 ## [0.6.4](https://github.com/rvanbaalen/agent-vision/compare/v0.6.3...v0.6.4) (2026-04-02)
 
 
