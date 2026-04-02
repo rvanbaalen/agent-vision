@@ -23,18 +23,80 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  update-homebrew:
+  build-and-upload:
     needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: swift build -c release --disable-sandbox
+
+      - name: Create .app bundle
+        env:
+          VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          APP="Agent Vision.app"
+          mkdir -p "${APP}/Contents/MacOS"
+          mkdir -p "${APP}/Contents/Resources"
+
+          cp .build/release/agent-vision "${APP}/Contents/MacOS/agent-vision"
+
+          cat > "${APP}/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Agent Vision</string>
+            <key>CFBundleDisplayName</key>
+            <string>Agent Vision</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.agent-vision.app</string>
+            <key>CFBundleVersion</key>
+            <string>${VERSION}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundleExecutable</key>
+            <string>agent-vision</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>14.0</string>
+            <key>LSUIElement</key>
+            <true/>
+            <key>NSScreenCaptureUsageDescription</key>
+            <string>Agent Vision needs screen recording access to capture screenshots of the selected area.</string>
+          </dict>
+          </plist>
+          PLIST
+
+          codesign --force --sign - --deep "${APP}"
+
+      - name: Create tarball
+        run: tar -czf agent-vision-arm64.tar.gz "Agent Vision.app"
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: gh release upload "${TAG}" agent-vision-arm64.tar.gz
+
+  update-homebrew:
+    needs: [release-please, build-and-upload]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Get release tarball SHA256
+      - name: Get binary tarball SHA256
         id: sha
         env:
           REPO: ${{ github.repository }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          SHA=$(curl -sL "https://github.com/${REPO}/archive/refs/tags/${TAG}.tar.gz" | shasum -a 256 | cut -d' ' -f1)
+          curl -sL "https://github.com/${REPO}/releases/download/${TAG}/agent-vision-arm64.tar.gz" -o agent-vision-arm64.tar.gz
+          SHA=$(shasum -a 256 agent-vision-arm64.tar.gz | cut -d' ' -f1)
           echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
 
       - name: Update Homebrew formula

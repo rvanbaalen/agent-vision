@@ -9,7 +9,7 @@ brew tap rvanbaalen/agent-vision
 brew install agent-vision
 ```
 
-Requires macOS 14+ (Sonoma), Apple Silicon, and Xcode 16+ (builds from source).
+Requires macOS 14+ (Sonoma) and Apple Silicon.
 
 After install, grant permissions:
 - **Screen Recording**: System Settings > Privacy & Security > Screen Recording
