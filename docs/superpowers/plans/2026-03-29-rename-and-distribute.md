@@ -682,6 +682,9 @@ class AgentVision < Formula
     (app_bundle).mkpath
     cp_r Dir["Agent Vision.app/*"], app_bundle
 
+    # Remove quarantine attribute to prevent Gatekeeper from blocking the ad-hoc signed binary
+    system "xattr", "-cr", app_bundle.to_s
+
     bin.install_symlink app_bundle/"Contents/MacOS/agent-vision"
   end
 
