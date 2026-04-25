@@ -18,13 +18,16 @@ class SelectionOverlay: NSWindow {
         ignoresMouseEvents = false
         collectionBehavior = [.canJoinAllSpaces]
 
-        selectionView = SelectionView(frame: screen.frame)
+        selectionView = SelectionView(frame: NSRect(origin: .zero, size: screen.frame.size))
         contentView = selectionView
     }
 
     override var canBecomeKey: Bool { true }
 
     func beginSelection() {
+        // Accessory apps need explicit activation so the borderless overlay
+        // can become key and receive mouse events through the responder chain.
+        NSApp.activate(ignoringOtherApps: true)
         makeKeyAndOrderFront(nil)
         NSCursor.crosshair.push()
     }
